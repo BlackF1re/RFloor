@@ -1,0 +1,37 @@
+<Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:RFloor" x:Class="RFloor.App" RequestedThemeVariant="Light">
+ <Application.Styles>
+  <FluentTheme />
+  <Style Selector=":is(local|SurfaceWindow)">
+   <Setter Property="FontFamily" Value="avares://Avalonia.Fonts.Inter/Assets#Inter"/><Setter Property="FontSize" Value="13"/><Setter Property="Foreground" Value="#171717"/>
+  </Style>
+  <Style Selector="Button">
+   <Setter Property="MinHeight" Value="0"/><Setter Property="MinWidth" Value="0"/>
+   <Setter Property="CornerRadius" Value="4"/><Setter Property="Background" Value="#F2F2F2"/><Setter Property="Foreground" Value="#171717"/>
+   <Setter Property="Padding" Value="14,9"/><Setter Property="Margin" Value="0,0,6,0"/><Setter Property="BorderThickness" Value="0"/>
+   <Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Template"><ControlTemplate><Border Name="ButtonSurface" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}"><ContentPresenter Name="ButtonContent" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True"/></Border></ControlTemplate></Setter>
+  </Style>
+  <Style Selector="Button:pointerover /template/ Border#ButtonSurface"><Setter Property="Opacity" Value="0.82"/></Style>
+  <Style Selector="Button:pressed /template/ Border#ButtonSurface"><Setter Property="Opacity" Value="0.65"/></Style>
+  <Style Selector="Button:disabled /template/ Border#ButtonSurface"><Setter Property="Opacity" Value="0.38"/></Style>
+  <Style Selector="Button:focus-visible /template/ Border#ButtonSurface"><Setter Property="BorderBrush" Value="#C45100"/><Setter Property="BoxShadow" Value="0 0 0 1 #C45100"/></Style>
+  <Style Selector="ToggleButton.modeSwitch">
+   <Setter Property="CornerRadius" Value="14"/><Setter Property="Background" Value="#F2F2F2"/>
+   <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}"><ContentPresenter Name="ModeContent" Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center"/></Border></ControlTemplate></Setter>
+  </Style>
+  <Style Selector="CheckBox"><Setter Property="HorizontalAlignment" Value="Left"/><Setter Property="HorizontalContentAlignment" Value="Left"/></Style>
+  <Style Selector="Slider"><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="MinHeight" Value="32"/></Style>
+  <Style Selector="GroupBox"><Setter Property="Template"><ControlTemplate><Border BorderBrush="#D9D9D9" BorderThickness="1" CornerRadius="4" Padding="12"><StackPanel><TextBlock Text="{TemplateBinding Header}" FontWeight="SemiBold" Margin="0,0,0,8"/><ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch"/></StackPanel></Border></ControlTemplate></Setter></Style>
+  <Style Selector="TextBox"><Setter Property="MinHeight" Value="0"/><Setter Property="Padding" Value="9,7"/><Setter Property="Margin" Value="0,4,0,12"/><Setter Property="BorderBrush" Value="#BDBDBD"/><Setter Property="BorderThickness" Value="1"/><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  <Style Selector="ComboBox"><Setter Property="MinHeight" Value="0"/><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  <Style Selector="CheckBox"><Setter Property="MinHeight" Value="28"/></Style>
+  <Style Selector="TabControl.settingsTabs"><Setter Property="Template"><ControlTemplate><DockPanel><ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"/></ScrollViewer><ContentPresenter Name="PART_SelectedContentHost" Content="{TemplateBinding SelectedContent}" ContentTemplate="{TemplateBinding SelectedContentTemplate}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/></DockPanel></ControlTemplate></Setter></Style>
+  <Style Selector="TabItem"><Setter Property="FontSize" Value="13"/><Setter Property="MinHeight" Value="0"/><Setter Property="Padding" Value="12,6"/></Style>
+  <Style Selector="TabItem"><Setter Property="Template"><ControlTemplate><Border Name="TabSurface" Background="#EEEEEE" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="{TemplateBinding Padding}"><ContentPresenter Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}" VerticalContentAlignment="Center"/></Border></ControlTemplate></Setter></Style>
+  <Style Selector="TabItem:selected /template/ Border#TabSurface"><Setter Property="Background" Value="White"/><Setter Property="BorderBrush" Value="#C45100"/></Style>
+  <Style Selector="TabItem:pointerover /template/ Border#TabSurface"><Setter Property="Background" Value="#FFF1E6"/></Style>
+  <Style Selector="DockPanel#CanvasDock Button"><Setter Property="Height" Value="28"/><Setter Property="Padding" Value="10,0"/><Setter Property="Margin" Value="0,0,4,0"/></Style>
+  <Style Selector="DockPanel#CanvasDock ComboBox"><Setter Property="MinWidth" Value="64"/></Style>
+ </Application.Styles>
+ <Application.Resources><Color x:Key="SystemAccentColor">#C45100</Color></Application.Resources>
+</Application>

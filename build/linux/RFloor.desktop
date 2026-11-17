@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RFloor
+Comment=Floor plans and Wi-Fi surveys
+Exec=RFloor.Desktop %f
+Icon=rfloor
+Categories=Network;Utility;
+Terminal=false
+MimeType=application/x-rfloor-plan;

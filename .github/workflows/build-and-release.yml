@@ -1,0 +1,57 @@
+name: Build and Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (x.x.x)
+        required: true
+        type: string
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version and check tag
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version must be x.x.x"; exit 1; }
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists"; exit 1
+          fi
+
+  build:
+    needs: validate
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      version: ${{ inputs.version }}
+
+  publish:
+    name: Publish v${{ inputs.version }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: RFloor-*
+          merge-multiple: true
+          path: release-assets
+      - name: Release platform packages
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test -n "$(find release-assets -type f -print -quit)"
+          cd release-assets
+          sha256sum RFloor-* > SHA256SUMS.txt
+          cd ..
+          gh release create "v$VERSION" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "RFloor v$VERSION" \
+            --notes "Shared editor, surveys, heatmaps and settings on Windows, Linux and Android. Phone controls support touch drawing, pinch zoom and collapsible panels. All packages include .NET and iperf3. Android APK uses a persistent release signing key. Packages passed shared editor/coverage checks, Linux startup and live network checks, and Android emulator editor/native iperf3 checks. See SHA256SUMS.txt for checksums."

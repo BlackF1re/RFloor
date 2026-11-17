@@ -1,0 +1,12 @@
+.env
+*.local
+.DS_Store
+
+# Generated .NET builds and bundled dependencies
+artifacts/
+**/bin/
+**/obj/
+
+build/native/
+examples/Моя комната.rfplan
+/AGENTS.md

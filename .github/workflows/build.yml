@@ -1,0 +1,167 @@
+name: Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        required: false
+        type: string
+        default: ''
+permissions:
+  contents: read
+jobs:
+  desktop:
+    name: ${{ matrix.os }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: windows-latest, os: windows, rid: win-x64, arch: x64}
+          - {runner: windows-11-arm, os: windows, rid: win-arm64, arch: arm64}
+          - {runner: ubuntu-24.04, os: linux, rid: linux-x64, arch: x64}
+          - {runner: ubuntu-24.04-arm, os: linux, rid: linux-arm64, arch: arm64}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Prepare Windows iperf3
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./build/Prepare-Iperf.ps1
+      - name: Prepare Linux dependencies and iperf3
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y libfontconfig1 libice6 libsm6 libx11-6 libxrandr2 libxi6 iw iputils-ping xvfb
+          bash build/iperf/build.sh linux
+          build/native/linux/iperf3 -s -D
+          echo "$GITHUB_WORKSPACE/build/native/linux" >> "$GITHUB_PATH"
+      - name: Check shared editor, documents, localization and coverage
+        shell: pwsh
+        run: |
+          if ('${{ matrix.os }}' -eq 'linux') { $env:RFLOOR_NETWORK_CHECK_HOST = '127.0.0.1' }
+          dotnet run --project tests/RFloor.Checks -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Shared checks failed' }
+      - name: Publish standalone desktop application
+        shell: pwsh
+        env:
+          RFLOOR_VERSION: ${{ inputs.version }}
+        run: |
+          $version = $env:RFLOOR_VERSION
+          if (-not $version) { $version = ([xml](Get-Content -Raw Directory.Build.props)).Project.PropertyGroup.Version }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version must be x.x.x' }
+          dotnet publish app/RFloor.Desktop -c Release -r ${{ matrix.rid }} --self-contained true "-p:Version=$version" -o artifacts/publish
+          if ($LASTEXITCODE -ne 0) { throw 'Standalone publish failed' }
+          "RFLOOR_VERSION=$version" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force artifacts/packages | Out-Null
+      - name: Package Windows ZIP and installer
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $publish = (Resolve-Path artifacts/publish).Path
+          $output = (Resolve-Path artifacts/packages).Path
+          Compress-Archive -Path "$publish/*" -DestinationPath "$output/RFloor-$env:RFLOOR_VERSION-windows-${{ matrix.arch }}-portable.zip"
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path $compiler)) { choco install innosetup --yes --no-progress }
+          & $compiler "/DAppVersion=$env:RFLOOR_VERSION" "/DAppArch=${{ matrix.arch }}" "/DPublishDir=$publish" "/DOutputDir=$output" build/windows/RFloor.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+      - name: Package Linux portable application
+        if: matrix.os == 'linux'
+        run: |
+          cp build/linux/AppRun build/linux/RFloor.desktop artifacts/publish/
+          cp app/RFloor/Assets/RFloor.png artifacts/publish/rfloor.png
+          chmod +x artifacts/publish/AppRun artifacts/publish/RFloor.Desktop artifacts/publish/iperf3/iperf3
+          artifacts/publish/iperf3/iperf3 --version
+          set +e
+          timeout 8s xvfb-run -a artifacts/publish/RFloor.Desktop > artifacts/linux-startup.log 2>&1
+          status=$?
+          set -e
+          cat artifacts/linux-startup.log
+          test "$status" -eq 124
+          tar -C artifacts/publish -czf "artifacts/packages/RFloor-$RFLOOR_VERSION-linux-${{ matrix.arch }}.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RFloor-${{ matrix.os }}-${{ matrix.arch }}
+          path: artifacts/packages/*
+          if-no-files-found: error
+          retention-days: 14
+  android:
+    name: Android ARM64 and x64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android workload and native toolchain
+        run: |
+          dotnet workload install android --skip-manifest-update
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+      - name: Build bundled native iperf3
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" bash build/iperf/build.sh android
+      - name: Publish standalone APK
+        env:
+          RFLOOR_VERSION: ${{ inputs.version }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          version="${RFLOOR_VERSION:-$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props | tr -d '\r')}"
+          IFS=. read -r major minor patch <<< "$version"
+          code=$((major * 1000000 + minor * 1000 + patch))
+          signing=()
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" ]]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/rfloor-release.p12"
+            signing=(-p:AndroidKeyStore=true -p:AndroidSigningKeyStore="$RUNNER_TEMP/rfloor-release.p12" -p:AndroidSigningKeyAlias=rfloor -p:AndroidSigningStorePass=env:ANDROID_KEYSTORE_PASSWORD -p:AndroidSigningKeyPass=env:ANDROID_KEYSTORE_PASSWORD)
+          elif [[ '${{ github.event_name }}' != pull_request ]]; then
+            echo 'A persistent Android release signing key is required'; exit 1
+          fi
+          dotnet publish app/RFloor.Android -c Release -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -p:ApplicationVersion="$code" -p:ApplicationDisplayVersion="$version" -p:Version="$version" "${signing[@]}" -o artifacts/android
+          mkdir -p artifacts/packages
+          apk="$(find artifacts/android -name '*-Signed.apk' -print -quit)"
+          test -n "$apk"
+          cp "$apk" "artifacts/packages/RFloor-$version-android.apk"
+          unzip -l "$apk" | grep 'lib/arm64-v8a/librfloor_iperf.so'
+          unzip -l "$apk" | grep 'lib/x86_64/librfloor_iperf.so'
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
+      - name: Build isolated Android verification APK
+        run: |
+          dotnet clean app/RFloor.Android -c Release
+          dotnet publish app/RFloor.Android -c Release -p:EnablePlatformChecks=true -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -o artifacts/android-instrumentation
+          sudo apt-get install -y iperf3
+          iperf3 -s -D
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Check phone startup, editor and native measurements
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash build/android/check-startup.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Android-startup-check
+          path: artifacts/android-check/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RFloor-android
+          path: artifacts/packages/*
+          if-no-files-found: error
+          retention-days: 14

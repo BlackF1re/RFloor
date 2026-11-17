@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="app/RFloor/RFloor.csproj" />
+  <Project Path="app/RFloor.Desktop/RFloor.Desktop.csproj" />
+  <Project Path="app/RFloor.Android/RFloor.Android.csproj" />
+  <Project Path="tests/RFloor.Checks/RFloor.Checks.csproj" />
+</Solution>
