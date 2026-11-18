@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="240" viewBox="0 0 1040 240" role="img" aria-labelledby="title description">
+  <title id="title">RFloor</title>
+  <desc id="description">An orange Wi-Fi survey overlay on a floor plan.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#fff0e5"/>
+    </linearGradient>
+    <radialGradient id="coverage">
+      <stop stop-color="#ff8a38" stop-opacity=".65"/>
+      <stop offset=".55" stop-color="#ffab6d" stop-opacity=".45"/>
+      <stop offset="1" stop-color="#ffd6b9" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#d6bfae" stroke-opacity=".65"/>
+    </pattern>
+    <clipPath id="plan">
+      <rect x="500" y="36" width="476" height="168" rx="10"/>
+    </clipPath>
+  </defs>
+
+  <rect x="1" y="1" width="1038" height="238" rx="24" fill="url(#background)" stroke="#ead6c7" stroke-width="2"/>
+  <path d="M64 75h48" fill="none" stroke="#bc5000" stroke-width="5" stroke-linecap="round"/>
+  <text x="61" y="137" fill="#202020" font-family="Segoe UI, Arial, sans-serif" font-size="66" font-weight="700" letter-spacing="-2">RFloor</text>
+  <text x="65" y="169" fill="#634f42" font-family="Segoe UI, Arial, sans-serif" font-size="22">Wi-Fi surveys &amp; heatmaps</text>
+
+  <g clip-path="url(#plan)">
+    <rect x="500" y="36" width="476" height="168" fill="#fffcf9"/>
+    <ellipse cx="763" cy="107" rx="169" ry="93" fill="url(#coverage)"/>
+    <ellipse cx="853" cy="159" rx="96" ry="57" fill="url(#coverage)" opacity=".5"/>
+    <rect x="500" y="36" width="476" height="168" fill="url(#grid)"/>
+    <g fill="none" stroke="#5c514b" stroke-width="4" stroke-linejoin="round">
+      <path d="M523 54H950V187H523Z"/>
+      <path d="M645 54V112m0 29v46m150-133v38m0 31v64m0-69h67m27 0h61"/>
+    </g>
+    <g fill="#fffaf6" stroke="#bc5000" stroke-width="2">
+      <circle cx="580" cy="111" r="4"/>
+      <circle cx="720" cy="151" r="4"/>
+      <circle cx="855" cy="86" r="4"/>
+      <circle cx="914" cy="155" r="4"/>
+    </g>
+    <g fill="none" stroke="#bc5000" stroke-width="2">
+      <circle cx="740" cy="99" r="7"/>
+      <circle cx="740" cy="99" r="13" opacity=".7"/>
+      <circle cx="740" cy="99" r="19" opacity=".4"/>
+    </g>
+    <circle cx="740" cy="99" r="2.5" fill="#bc5000"/>
+  </g>
+  <rect x="500" y="36" width="476" height="168" rx="10" fill="none" stroke="#dfcbbd"/>
+</svg>
