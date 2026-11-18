@@ -164,9 +164,10 @@ public partial class MainWindow : SurfaceWindow
             if (Math.Abs(shift)>1e-8 && Viewport.IsLoaded) { Viewport.ScrollToHorizontalOffset(Math.Max(0,Viewport.HorizontalOffset+shift*PlanZoom.ScaleX)); Viewport.ScrollToVerticalOffset(Math.Max(0,Viewport.VerticalOffset+shift*PlanZoom.ScaleY)); }
         }
         double step=GridSize*Scale;
-        var grid = new DrawingBrush {TileMode=TileMode.Tile,DestinationRect=new RelativeRect(0,0,step,step,RelativeUnit.Absolute),SourceRect=new RelativeRect(0,0,step,step,RelativeUnit.Absolute),
-            Drawing=gridView==1?new GeometryDrawing {Brush=Brushes.Gray,Geometry=new EllipseGeometry(new Rect(.3,.3,1.4,1.4))}:new GeometryDrawing {Pen=new Pen(Brushes.LightGray,.5),Geometry=Avalonia.Media.Geometry.Parse(FormattableString.Invariant($"M {step},0 L 0,0 0,{step}"))}};
-        Plan.Background = showGrid ? grid : Brushes.White;
+        double half=step/2, phase=(origin+half)%step;
+        var grid = new DrawingBrush {TileMode=TileMode.Tile,DestinationRect=new RelativeRect(phase,phase,step,step,RelativeUnit.Absolute),SourceRect=new RelativeRect(0,0,step,step,RelativeUnit.Absolute),
+            Drawing=gridView==1?new GeometryDrawing {Brush=Brushes.Gray,Geometry=new EllipseGeometry(new Rect(half-.7,half-.7,1.4,1.4))}:new GeometryDrawing {Pen=new Pen(Brushes.LightGray,.5),Geometry=Avalonia.Media.Geometry.Parse(FormattableString.Invariant($"M {half},0 L {half},{step} M 0,{half} L {step},{half}"))}};
+        Plan.Background = showGrid && !surveyMode ? grid : Brushes.White;
         foreach (var node in Rooms)
         {
             var room = node!.AsObject(); double x=Number(room["x"]), y=Number(room["y"]), w=Number(room["w"]), h=Number(room["h"]);
@@ -176,7 +177,11 @@ public partial class MainWindow : SurfaceWindow
 
             if (!surveyMode) Objects.Items.Add(new ObjectEntry(L("Комната · {0}", name), room, "room"));
         }
-        if (surveyMode) { UpdateAccessPoints(); RenderHeatmap(); }
+        if (surveyMode) {
+            UpdateAccessPoints();
+            RenderHeatmap();
+            if (showGrid) Plan.Children.Add(new Rectangle {Width=Plan.Width,Height=Plan.Height,Fill=grid,IsHitTestVisible=false});
+        }
         DrawWallMaterial();
         foreach (var node in Walls) { var wall=node!.AsObject(); if (!surveyMode) Objects.Items.Add(new ObjectEntry(L("{0} · {1:0.##} м", ObjectName(wall,L("Стена")), Length(wall)), wall, "wall")); }
         foreach (var node in Doors) { var door=node!.AsObject(); DrawOpening(door); if (!surveyMode) Objects.Items.Add(new ObjectEntry(L("{0} · {1:0.##} м", ObjectName(door,L("Проём")), Length(door)), door, "door")); }
@@ -208,8 +213,7 @@ public partial class MainWindow : SurfaceWindow
         ClearSelectionHighlight();
         UpdateObjectOpacity();
         DeleteButton.IsEnabled = Objects.SelectedItem is ObjectEntry;
-        MeasureButton.IsEnabled = measurementCancellation is not null || Objects.SelectedItem is ObjectEntry { Kind: "point" };
-        if (Objects.SelectedItems.Count>1) { foreach(var entry in Objects.SelectedItems.Cast<ObjectEntry>()) ShowProperties(entry); PropertiesEditor.IsVisible=false; SelectionInfo.Text=L("Выбрано объектов: {0}. Ctrl — добавить или убрать объект; Shift и протягивание — рамка.", Objects.SelectedItems.Count); return; }
+        if (Objects.SelectedItems.Count>1) { PropertiesEditor.IsVisible=false; SelectionInfo.Text=surveyMode ? L("Выбрано точек: {0}", Objects.SelectedItems.Count) : L("Выбрано объектов: {0}. Ctrl — добавить или убрать объект; Shift и протягивание — рамка.", Objects.SelectedItems.Count); return; }
         if (Objects.SelectedItem is not ObjectEntry selected) { PropertiesEditor.IsVisible = false; SelectionInfo.Text = surveyMode ? L("Выберите точку для просмотра результатов") : L("Выберите объект для просмотра размеров"); return; }
         ShowProperties(selected);
         var obj = selected.Item;
@@ -271,14 +275,28 @@ public partial class MainWindow : SurfaceWindow
         if(SurfaceSnap(p) is Point surface)return surface;
         double grid = GridSize; return new Point(Math.Round(p.X/grid)*grid, Math.Round(p.Y/grid)*grid);
     }
-    private void Plan_MouseDown(object sender, PointerPressedEventArgs e)
+    private async void Plan_MouseDown(object sender, PointerPressedEventArgs e)
     {
         if(e.Button()!=MouseButton.Left && (e.Button()!=MouseButton.Right || surveyMode || tool is not ("rect" or "roundRect" or "ellipse" or "line")))return;
         if(e.Pointer.Type==PointerType.Touch)return;
         if (inlineNameEditor is not null) { CommitInlineRename(); e.Handled=true; return; }
         if (!surveyMode && tool == "tape") return;
         var local = e.GetPosition(Plan);
-        if ((surveyMode && !addingPoint) || (!surveyMode && tool == "select"))
+        if (surveyMode) {
+            if (measurementCancellation is not null) return;
+            double radius=8/(Scale*PlanZoom.ScaleX);
+            if (surveyTool == SurveyTool.Select && HitObject(World(local,false),radius) is null) {
+                marqueeStart=marqueeEnd=World(local,false);
+                Plan.CapturePointer();
+                return;
+            }
+            if (surveyTool != SurveyTool.None) {
+                e.Handled=true;
+                await SurveyClick(local,radius);
+                return;
+            }
+        }
+        if (surveyMode || tool == "select")
         {
             if (PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) { marqueeStart=marqueeEnd=World(local,false); Plan.CapturePointer(); return; }
             SelectAt(World(local, false));
@@ -289,7 +307,6 @@ public partial class MainWindow : SurfaceWindow
             return;
         }
         var point = World(local);
-        if (surveyMode) { SurveyClick(point); return; }
         if(tool=="router"){AddRouter(point);return;}
 
         drawingFilled=e.Button()==MouseButton.Left;drawingButton=e.Button();e.Handled=true;
@@ -299,7 +316,7 @@ public partial class MainWindow : SurfaceWindow
     {
         if(e.Pointer.Type==PointerType.Touch)return;
         if(!surveyMode && tool=="router") {var point=World(e.GetPosition(Plan));if(routerPreview!=point){routerPreview=point;DrawRouterPreview();}return;}
-        if(surveyMode && addingPoint) {var point=World(e.GetPosition(Plan));if(pointPreview!=point){pointPreview=point;DrawPointPreview();}return;}
+        if(surveyMode && surveyTool == SurveyTool.Add && measurementCancellation is null) {var point=SurveyPosition(e.GetPosition(Plan));if(pointPreview!=point){pointPreview=point;DrawPointPreview();}return;}
         if (marqueeStart is not null && Plan.IsPointerCaptured()) { marqueeEnd=World(e.GetPosition(Plan),false); DrawMarquee(); return; }
         if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured())
         {
@@ -319,7 +336,7 @@ public partial class MainWindow : SurfaceWindow
         if(e.Pointer.Type==PointerType.Touch)return;
         if(e.Button()!=MouseButton.Left && (drawingStart is null || e.Button()!=drawingButton))return;
         if(drawingStart is not null && e.Button()!=drawingButton)return;
-        if (marqueeStart is Point first && marqueeEnd is Point last) { Plan.ReleasePointer(); marqueeStart=marqueeEnd=null; var area=Rects.Between(first,last); var entries=Objects.Items.Cast<ObjectEntry>().Where(v=>InsideMarquee(v,area)).ToList(); if (!PointerContext.Modifiers.HasFlag(KeyModifiers.Control)) Objects.SelectedItems.Clear(); foreach(var entry in entries) if(!Objects.SelectedItems.Contains(entry))Objects.SelectedItems.Add(entry); ClearMarquee(); return; }
+        if (marqueeStart is Point first) { Plan.ReleasePointer(); SelectMarquee(first,World(e.GetPosition(Plan),false)); return; }
         if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured())
         {
             Point to = World(e.GetPosition(Plan), false); var delta = AdjustDrag(item, to-from); bool valid = CanMove(item, delta); Plan.ReleasePointer(); dragStart = null; dragItem = null; dragDelta = new Vector();

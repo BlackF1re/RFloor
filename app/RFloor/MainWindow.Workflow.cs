@@ -12,6 +12,20 @@ public partial class MainWindow
         return area.Contains(new Point(Number(obj["x"]),Number(obj["y"])));
     }
     private Rectangle? marquee;
+    private void SelectMarquee(Point first, Point last)
+    {
+        marqueeStart=marqueeEnd=null;
+        ClearMarquee();
+        var area=Rects.Between(first,last);
+        updating=true;
+        try {
+            var selection=Objects.SelectedItems!;
+            if (!PointerContext.Modifiers.HasFlag(KeyModifiers.Control)) selection.Clear();
+            foreach (var entry in Objects.Items.Cast<ObjectEntry>().Where(v=>InsideMarquee(v,area)))
+                if (!selection.Contains(entry)) selection.Add(entry);
+        } finally { updating=false; }
+        Objects_SelectionChanged(Objects,null!);
+    }
     private void ClearMarquee()
     {
         if(marquee is null)return;
@@ -45,8 +59,9 @@ public partial class MainWindow
     private void DeleteSelection_Click(object sender,RoutedEventArgs e)
     {
         if(measurementCancellation is not null)return;
-        CommitInlineRename();ResetPointerTools();
         var selected=Objects.SelectedItems.Cast<ObjectEntry>().Select(v=>v.Item).ToList();
+        if (surveyMode) { DeleteSurveyPoints(selected); return; }
+        CommitInlineRename();ResetPointerTools();
         if(selected.Count==0)return;
         string before=document.ToJsonString(); int count=undo.Count;
         foreach(var item in selected) { var entry=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(v=>ReferenceEquals(v.Item,item)); if(entry is null)continue; Objects.SelectedItem=entry; Delete_Click(sender,e); }
@@ -71,7 +86,9 @@ public partial class MainWindow
         _=>null
     };
 
-    private ToolTip PointTooltip(JsonObject point)
+    private ToolTip PointTooltip(JsonObject point) => new() { Content=PointDetails(point) };
+
+    private ScrollViewer PointDetails(JsonObject point)
     {
         var panel = new StackPanel { Margin=new Thickness(6), MaxWidth=340 };
         panel.Children.Add(new TextBlock { Text=ObjectName(point,L("Точка")), FontWeight=FontWeights.SemiBold, Margin=new Thickness(0,0,0,6) });
@@ -81,7 +98,7 @@ public partial class MainWindow
             panel.Children.Add(new TextBlock {Text=diagnostic.ToString(),TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DarkOrange});
         foreach(var reading in PointReadings(point).DefaultIfEmpty(point))
             AddReadingDetails(panel,reading);
-        return new ToolTip { Content=new ScrollViewer {Content=panel,MaxHeight=400,VerticalScrollBarVisibility=ScrollBarVisibility.Auto} };
+        return new ScrollViewer {Content=panel,MaxHeight=400,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
     }
 
     private void AddReadingDetails(StackPanel panel,JsonObject point)

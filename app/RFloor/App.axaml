@@ -19,6 +19,18 @@
    <Setter Property="CornerRadius" Value="14"/><Setter Property="Background" Value="#F2F2F2"/>
    <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}"><ContentPresenter Name="ModeContent" Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center"/></Border></ControlTemplate></Setter>
   </Style>
+  <Style Selector="ToggleButton.surveyTool">
+   <Setter Property="Height" Value="50"/><Setter Property="Padding" Value="2"/><Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Template"><ControlTemplate>
+    <Border Name="SurveyToolSurface" Background="#F2F2F2" CornerRadius="4" Padding="{TemplateBinding Padding}">
+     <ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+    </Border>
+   </ControlTemplate></Setter>
+  </Style>
+  <Style Selector="ToggleButton.surveyTool:pointerover /template/ Border#SurveyToolSurface"><Setter Property="Background" Value="#E8E8E8"/></Style>
+  <Style Selector="ToggleButton.surveyTool:checked /template/ Border#SurveyToolSurface"><Setter Property="Background" Value="#FFE5CC"/></Style>
+  <Style Selector="ToggleButton.surveyTool:checked:pointerover /template/ Border#SurveyToolSurface"><Setter Property="Background" Value="#FFD6B3"/></Style>
+  <Style Selector="ToggleButton.surveyTool:focus-visible /template/ Border#SurveyToolSurface"><Setter Property="BoxShadow" Value="0 0 0 1 #C45100"/></Style>
   <Style Selector="CheckBox"><Setter Property="HorizontalAlignment" Value="Left"/><Setter Property="HorizontalContentAlignment" Value="Left"/></Style>
   <Style Selector="Slider"><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="MinHeight" Value="32"/></Style>
   <Style Selector="GroupBox"><Setter Property="Template"><ControlTemplate><Border BorderBrush="#D9D9D9" BorderThickness="1" CornerRadius="4" Padding="12"><StackPanel><TextBlock Text="{TemplateBinding Header}" FontWeight="SemiBold" Margin="0,0,0,8"/><ContentPresenter Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch"/></StackPanel></Border></ControlTemplate></Setter></Style>

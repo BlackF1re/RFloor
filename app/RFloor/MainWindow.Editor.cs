@@ -79,11 +79,15 @@ public partial class MainWindow
     }
     private void EnsurePointFree(double x, double y, JsonObject? ignored)
     {
-        if (Points.Any(n => !ReferenceEquals(n,ignored) && ((Vector)(new Point(Number(n!["x"]),Number(n["y"]))-new Point(x,y))).Length < .1))
+        if (Points.Any(n => !ReferenceEquals(n,ignored) && ((Vector)(new Point(Number(n!["x"]),Number(n["y"]))-new Point(x,y))).SquaredLength <= 1e-12))
             throw new FormatException(L("В этом месте уже есть точка замера."));
     }
     private Vector AdjustDrag(ObjectEntry item, Vector delta)
     {
+        if (item.Kind == "point") {
+            var start = new Point(Number(item.Item["x"]), Number(item.Item["y"]));
+            return SnapSurveyPosition(start + delta) - start;
+        }
         if (SnapEnabled.IsChecked == true && !PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) { double step=GridSize; delta=delta.WithX(Math.Round(delta.X/step)*step); delta=delta.WithY(Math.Round(delta.Y/step)*step); }
         if (item.Kind == "door") { Vector axis=End(item.Item,"b")-End(item.Item,"a"); if (axis.Length > 1e-8) { axis=axis/axis.Length; delta=axis*Vectors.Dot(axis,delta); } }
         if(SnapEnabled.IsChecked==true && !PointerContext.Modifiers.HasFlag(KeyModifiers.Shift))delta=SnapMovedSurface(item,delta);

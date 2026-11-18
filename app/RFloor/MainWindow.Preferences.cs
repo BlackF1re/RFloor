@@ -91,6 +91,7 @@ public partial class MainWindow
             case "undo":Undo_Click(this,args);break;case "redo":Redo_Click(this,args);break;case "all":SelectAll_Click(this,args);break;
             case "delete":DeleteSelection_Click(this,args);break;case "rename":Rename_Click(this,args);break;case "fit":Fit_Click(this,args);break;
             case "zoomIn":ZoomIn_Click(this,args);break;case "zoomOut":ZoomOut_Click(this,args);break;case "settings":Preferences_Click(this,args);break;
+            case "select" when surveyMode:ToggleSurveyTool(SurveyTool.Select);break;
             case "select":case "room":case "wall":case "door":case "tape":SetTool(action);break;case "point":AddPointMode_Click(this,args);break;
             case "cancel":ResetPointerTools();RenderPlan();break;
         }

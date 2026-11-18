@@ -8,7 +8,7 @@ public partial class MainWindow
     private TextBox? inlineNameEditor;
     private ObjectEntry? inlineNameTarget;
 
-    private void ResetPointerTools()
+    private void ResetPointerTools(bool keepSurveyTool = false)
     {
         CancelTouchGesture();
         touchDrawingAnchor=null;
@@ -16,7 +16,9 @@ public partial class MainWindow
         HideTouchCard();
         if (Plan.IsPointerCaptured()) Plan.ReleasePointer();
         tapeStart=tapeCursor=routerPreview=drawingStart=drawingEnd=dragStart=marqueeStart=marqueeEnd=null;
-        dragItem=null; dragDelta=new Vector(); addingPoint=false; pointPreview=null;
+        dragItem=null; dragDelta=new Vector(); pointPreview=null;
+        ClearMarquee();
+        if (!keepSurveyTool) SetSurveyTool(SurveyTool.None);
     }
 
 
@@ -39,12 +41,17 @@ public partial class MainWindow
     // Selection and drag previews use the same geometry as the permanent objects.
     private void DrawObjectShape(ObjectEntry entry,Vector delta,double opacity,IBrush tint,string? tag)
     {
-        var obj=entry.Item;var walls=Walls.Select(n=>n!.AsObject()).ToList();
-        bool invalid=tint==Brushes.Crimson;
+        var obj=entry.Item;
         if(entry.Kind=="decoration"){DrawDecoration(obj,delta,tint,opacity,tag);return;}
+        if(entry.Kind=="point") {
+            var position=new Point(Number(obj["x"])+delta.X,Number(obj["y"])+delta.Y);
+            Plan.Children.Add(CreatePointMarker(position, tint, tag, tag==HighlightTag?11:6, opacity));
+            return;
+        }
+        var walls=Walls.Select(n=>n!.AsObject()).ToList();
         void Shape(Avalonia.Media.Geometry geometry) {
             var moved=geometry.Clone();moved.Transform=new TranslateTransform(delta.X*Scale,delta.Y*Scale);
-            Plan.Children.Add(new Avalonia.Controls.Shapes.Path {Data=moved,Fill=invalid?Brushes.Crimson:tint,Opacity=opacity,IsHitTestVisible=false,Tag=tag});
+            Plan.Children.Add(new Avalonia.Controls.Shapes.Path {Data=moved,Fill=tint,Opacity=opacity,IsHitTestVisible=false,Tag=tag});
         }
         if(entry.Kind=="room") {
             Avalonia.Media.Geometry ring=new GeometryGroup();
@@ -52,7 +59,6 @@ public partial class MainWindow
             Shape(ring);
             foreach(var door in Doors.Select(n=>n!.AsObject()).Where(w=>w["roomId"]?.ToString()==obj["id"]?.ToString()))Shape(OpeningGeometry(door));
         }
-        else if(entry.Kind=="point")Shape(new EllipseGeometry(new Rect(Screen(Number(obj["x"]))-1.25,Screen(Number(obj["y"]))-1.25,2.5,2.5)));
         else Shape(entry.Kind=="door"?OpeningGeometry(obj):WallGeometry(obj,walls));
     }
     private void UpdateObjectOpacity()
@@ -60,7 +66,7 @@ public partial class MainWindow
         var selected=Objects.SelectedItems.Cast<ObjectEntry>().ToList();
         foreach(var element in Plan.Children.OfType<FrameworkElement>())if(element.Tag is JsonObject obj) {
             bool chosen=selected.Any(e=>ReferenceEquals(e.Item,obj) || e.Kind=="room" && obj["roomId"] is not null && obj["roomId"]?.ToString()==e.Item["id"]?.ToString());
-            element.Opacity=IsDragging(obj) || chosen?0:1;
+            element.Opacity=IsDragging(obj) || chosen && !(surveyMode && element is Ellipse)?0:1;
         }
     }
 

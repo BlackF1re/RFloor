@@ -1,4 +1,11 @@
 {
+  "Выделить": "Select",
+  "Добавить": "Add",
+  "Замерить заново": "Measure again",
+  "Нажимайте на точки или обведите их рамкой, чтобы выделить несколько.": "Click points or drag a box to select several.",
+  "Нажмите на точку. Если она выделена, удалятся все выделенные точки.": "Click a point to delete it. Clicking a selected point deletes the whole selection.",
+  "Нажмите на точку, чтобы повторить замер.": "Click a point to measure it again.",
+  "Выбрано точек: {0}": "Selected points: {0}",
   "_Вид": "_View",
   "_Настройки": "_Settings",
   "_Новый план": "_New plan",

@@ -15,7 +15,10 @@ public partial class MainWindow
         var ids = Points.OfType<JsonObject>().SelectMany(PointReadings).Where(p => p["band"]?.ToString() == Band)
             .Select(AccessPointId).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var existing=AccessPointPicker.Items.OfType<ComboBoxItem>().Select(i=>i.Tag as string);
-        if(existing.SequenceEqual(ids.Count==0?[null]:ids,StringComparer.OrdinalIgnoreCase)) return;
+        if(existing.SequenceEqual(ids.Count==0?[null]:ids,StringComparer.OrdinalIgnoreCase)) {
+            if(ids.Count==0 && AccessPointPicker.Items[0] is ComboBoxItem placeholder) placeholder.Content=L("Нет данных");
+            return;
+        }
         AccessPointPicker.Items.Clear();
         if (ids.Count == 0) AccessPointPicker.Items.Add(new ComboBoxItem { Content = L("Нет данных"), Tag = null });
         else foreach (var id in ids) AccessPointPicker.Items.Add(new ComboBoxItem { Content = id, Tag = id });

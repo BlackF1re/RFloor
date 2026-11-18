@@ -60,10 +60,10 @@ internal static class NetworkMeasurements
         string? host, int port, int duration, CancellationToken token, bool download, bool upload)
     {
         var readings = new List<JsonObject>();
-        bool changed = false, unknown = false;
+        bool changed = false;
         string? wifiError = null;
         (string? Bssid,string? Band,bool Offline)? identity = null;
-        async Task Observe()
+        async Task<bool> Observe()
         {
             try
             {
@@ -73,36 +73,40 @@ internal static class NetworkMeasurements
                 var band = reading["band"]?.ToString();
                 bool offline = reading["coverage"]?.GetValue<bool>() == false;
                 if (!offline && (string.IsNullOrWhiteSpace(bssid) || band is not ("2.4" or "5" or "6"))) {
-                    unknown = true;
-                    return;
+                    return false;
                 }
                 var current = (bssid,band,offline);
                 if (identity is {} first && current != first) changed = true;
                 identity ??= current;
                 readings.Add(reading);
+                return true;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                unknown = true;
                 wifiError = ex.Message;
+                return false;
             }
         }
-        await Observe();
+        async Task<bool> ObserveBoundary() => await Observe() || await Observe();
+
+        bool startVerified = await ObserveBoundary();
         var network = RunConfiguredAsync(false,targets,count,host,port,duration,token,download,upload);
         int observations = 1;
+        bool endVerified = startVerified;
         while (signal && observations < 5 || !network.IsCompleted)
         {
             var interval = Task.Delay(450,token);
             if (signal && observations < 5) await interval;
             else await Task.WhenAny(interval,network);
             token.ThrowIfCancellationRequested();
-            await Observe();
+            endVerified = await Observe();
             observations++;
         }
         var result = await network;
-        if (!signal || targets.Length>0 || !string.IsNullOrEmpty(host)) await Observe();
+        if (!endVerified || !signal || targets.Length>0 || !string.IsNullOrEmpty(host))
+            endVerified = await ObserveBoundary();
 
-        if (changed || unknown || identity is null)
+        if (changed || !startVerified || !endVerified || identity is null)
         {
             result["measurementState"] = changed ? "mixed" : "unverified";
             if (wifiError is not null) result["wifiError"] = wifiError;
@@ -123,7 +127,7 @@ internal static class NetworkMeasurements
                     result[key]=(samples[(samples.Length-1)/2]+samples[samples.Length/2])/2;
             }
             if (result["rssi"] is null && result["quality"] is null)
-                result["error"] = string.Join("; ",new[] {result["error"]?.ToString(),wifiError ?? L("������ Wi-Fi ����������")}.OfType<string>());
+                result["error"] = string.Join("; ",new[] {result["error"]?.ToString(),wifiError ?? L("Сигнал Wi-Fi недоступен")}.OfType<string>());
         }
         return result;
     }
@@ -131,7 +135,8 @@ internal static class NetworkMeasurements
     internal static async Task<JsonObject> ReadWifi(CancellationToken token) {
         if(PlatformServices.WifiReader is {} native)return await native(token);
         var result=new JsonObject();var errors=new List<string>();
-        if(OperatingSystem.IsWindows()){ParseWifi(await RunProcess("netsh.exe",["wlan","show","interfaces"],token),result,errors);}
+        if(OperatingSystem.IsWindows())
+            return ParseWindowsWifi(await RunProcess("netsh.exe",["wlan","show","interfaces"],token,TimeSpan.FromSeconds(4)));
         else if(OperatingSystem.IsLinux()){
             var devices=await RunProcess("iw",["dev"],token);
             var names=Regex.Matches(devices,@"Interface\s+(\S+)").Select(m=>m.Groups[1].Value).ToArray();
@@ -154,26 +159,49 @@ internal static class NetworkMeasurements
         else result["error"]=L("Сигнал Wi-Fi недоступен");
         return result;
     }
-    private static void ParseWifi(string text, JsonObject result, List<string> errors)
+    internal static JsonObject ParseWindowsWifi(string text)
     {
-                var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var line in text.Split('\n')) { var i = line.IndexOf(':'); if (i > 0) fields[line[..i].Trim()] = line[(i+1)..].Trim(); }
-                string? Field(params string[] names) => names.Select(n => fields.GetValueOrDefault(n)).FirstOrDefault(v => v != null);
-                string? state=Field("state","состояние");
-                if(state is not null && (state.Equals("disconnected",StringComparison.OrdinalIgnoreCase) || state.Equals("отключено",StringComparison.OrdinalIgnoreCase)))
-                { result["coverage"]=false; result["quality"]=0; return; }
-                var q = Regex.Match(Field("signal", "сигнал", "уровень сигнала") ?? "", @"\d+");
-                if (q.Success) result["quality"] = Math.Clamp(int.Parse(q.Value, CultureInfo.InvariantCulture), 0, 100);
-                else errors.Add(L("Сигнал Wi-Fi недоступен"));
-                var rssi = Regex.Match(Field("rssi", "уровень rssi") ?? "", @"-?\d+");
-                if (rssi.Success && int.TryParse(rssi.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var dbm) && dbm is >= -120 and <= 0) result["rssi"] = dbm;
-                var ssid=Field("ssid"); var bssid=Field("bssid", "ap bssid", "bssid точки доступа");
-                if (ssid != null) result["ssid"]=ssid; if (bssid != null) result["bssid"]=bssid;
-                var band=Regex.Match(Field("band","диапазон","диапазон частот") ?? "", @"(2[.,]4|5|6)\s*(?:ghz|ггц)",RegexOptions.IgnoreCase);
-                if (band.Success) result["band"]=band.Groups[1].Value.Replace(',','.');
-                else if (int.TryParse(Field("channel","канал"),out int channel)) { if(channel is >0 and <=14) result["band"]="2.4"; else if(channel is >=30 and <=177) result["band"]="5"; }
-                if(int.TryParse(Field("channel","канал"),out int ch)) { string? currentBand=result["band"]?.GetValue<string>(); if(currentBand is not null) result["frequencyMHz"]=currentBand=="2.4"?(ch==14?2484:2407+ch*5):currentBand=="6"?(ch==2?5935:5950+ch*5):5000+ch*5; }
+        var adapters = new List<Dictionary<string, string>> { new(StringComparer.OrdinalIgnoreCase) };
+        foreach (var line in text.Split('\n')) {
+            int colon = line.IndexOf(':');
+            if (colon <= 0) continue;
+            string key = line[..colon].Trim();
+            if (key.Equals("Name", StringComparison.OrdinalIgnoreCase) || key.Equals("Имя", StringComparison.OrdinalIgnoreCase))
+                adapters.Add(new(StringComparer.OrdinalIgnoreCase));
+            adapters[^1][key] = line[(colon+1)..].Trim();
+        }
+        JsonObject? active = null;
+        foreach (var fields in adapters) {
+            string? Field(params string[] names) => names.Select(n => fields.GetValueOrDefault(n)).FirstOrDefault(v => v != null);
+            string? state = Field("state","состояние")?.ToLowerInvariant();
+            if (state is "disconnected" or "отключено" or "отключен" or "отключён") continue;
+            var bssid = Regex.Match(Field("ap bssid","bssid","bssid точки доступа","bssid тд") ?? "", @"\b(?:[a-f0-9]{2}:){5}[a-f0-9]{2}\b", RegexOptions.IgnoreCase);
+            if (!bssid.Success && state is not ("connected" or "подключено" or "подключен" or "подключён")) continue;
+            var reading = new JsonObject { ["coverage"]=true, ["ssid"]=Field("ssid") };
+            if (bssid.Success) reading["bssid"] = bssid.Value;
+            var quality = Regex.Match(Field("signal","сигнал","уровень сигнала") ?? "", @"\d+");
+            if (int.TryParse(quality.Value, out int q)) reading["quality"]=Math.Clamp(q,0,100);
+            var rssi = Regex.Match(Field("rssi","уровень rssi") ?? "", @"-?\d+");
+            if (int.TryParse(rssi.Value, out int dbm) && dbm is >= -120 and <= 0) reading["rssi"]=dbm;
+            bool hasChannel = int.TryParse(Field("channel","канал"),out int channel);
+            var frequencyBand = Regex.Match(Field("band","диапазон","диапазон частот") ?? "", @"(2[.,]4|5|6)\s*(?:ghz|ггц)",RegexOptions.IgnoreCase);
+            string? band = frequencyBand.Success ? frequencyBand.Groups[1].Value.Replace(',','.') :
+                hasChannel ? channel switch { >0 and <=14 => "2.4", >=30 and <=177 => "5", _ => null } : null;
+            if (band is not null) {
+                reading["band"] = band;
+                if (hasChannel) reading["frequencyMHz"] = band switch {
+                    "2.4" => channel==14?2484:2407+channel*5, "6" => channel==2?5935:5950+channel*5, _ => 5000+channel*5
+                };
+            }
+            if (bssid.Success && band is not null) return reading;
+            active ??= reading;
+        }
 
+        if (active is not null) return active;
+        if (adapters.Any(fields => (fields.GetValueOrDefault("state") ?? fields.GetValueOrDefault("состояние"))?.ToLowerInvariant()
+            is "disconnected" or "отключено" or "отключен" or "отключён"))
+            return new JsonObject { ["coverage"]=false, ["quality"]=0 };
+        return new JsonObject { ["error"]=L("Сигнал Wi-Fi недоступен") };
     }
     private static async Task<string> RunProcess(string filename, IEnumerable<string> args, CancellationToken token, TimeSpan? maxWait = null, string? workingDirectory = null)
     {

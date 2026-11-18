@@ -20,6 +20,12 @@ public partial class MainWindow
             project["settings"]=settings;
         }
         project["points"] ??= new JsonArray();
+        const string brokenPointPrefix = "РўРѕС‡РєР° ";
+        foreach (var point in project["points"]!.AsArray().OfType<JsonObject>())
+            if (point["name"] is JsonValue value && value.TryGetValue<string>(out var name) &&
+                name.StartsWith(brokenPointPrefix, StringComparison.Ordinal) &&
+                int.TryParse(name.AsSpan(brokenPointPrefix.Length), out int number) && number > 0)
+                point["name"] = L("Точка {0}", number);
         project["format"]="rfloor.plan";
         project.Remove("planSettings");
     }

@@ -23,6 +23,12 @@ internal static class NetworkChecks {
             result=await NetworkMeasurements.RunSurveyAsync(true,[],4,null,5201,1,CancellationToken.None,false,false);
             if(observation!=5 || result["rssi"]!.GetValue<double>()!=-53)throw new Exception("The survey did not save the RSSI median.");
             observation=0;
+            PlatformServices.WifiReader=_=>Task.FromResult(observation++==2 ? new JsonObject() :
+                new JsonObject {["band"]="5",["bssid"]="test",["rssi"]=-53});
+            result=await NetworkMeasurements.RunSurveyAsync(true,[],4,null,5201,1,CancellationToken.None,false,false);
+            if(result["measurementState"] is not null || result["rssi"]?.GetValue<double>()!=-53)
+                throw new Exception("An unreadable observation discarded stable Wi-Fi readings.");
+            observation=0;
             PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject {["band"]=observation++==0?"2.4":"5",["bssid"]="test",["rssi"]=-53});
             result=await NetworkMeasurements.RunSurveyAsync(false,[],4,null,5201,1,CancellationToken.None,false,false);
             if(result["measurementState"]?.ToString()!="mixed" || result["rssi"] is not null)throw new Exception("A band change produced a valid survey reading.");
@@ -34,10 +40,16 @@ internal static class NetworkChecks {
         }
         if(NetworkMeasurements.ParseLinuxWifi("Not connected.")["coverage"]!.GetValue<bool>())throw new Exception("Linux disconnected adapter reported coverage.");
         if(NetworkMeasurements.ParseLinuxWifi("Connected to aa:bb:cc:dd:ee:ff\n signal: -999 dBm")["rssi"] is not null)throw new Exception("Invalid Linux RSSI was accepted.");
+        var windows=NetworkMeasurements.ParseWindowsWifi(
+            "Name : Wi-Fi\nState : connected\nSSID : test\nAP BSSID : aa:bb:cc:dd:ee:ff\nBand : 5 GHz\nChannel : 36\nSignal : 84%\nRssi : -44\nName : Spare\nState : disconnected");
+        if(windows["bssid"]?.ToString()!="aa:bb:cc:dd:ee:ff" || windows["frequencyMHz"]?.GetValue<int>()!=5180 || windows["rssi"]?.GetValue<int>()!=-44)
+            throw new Exception("A disconnected adapter overwrote the active Windows Wi-Fi interface.");
         if(Environment.GetEnvironmentVariable("RFLOOR_NETWORK_CHECK_HOST") is {} host){
-            var result=await NetworkMeasurements.RunConfiguredAsync(false,[host],2,host,5201,1,CancellationToken.None,true,true);
-            if(result["error"] is not null || result["downloadMbps"]?.GetValue<double>() is not >0 || result["uploadMbps"]?.GetValue<double>() is not >0 || result["pings"]![0]!["received"]!.GetValue<int>()!=2)throw new Exception("Live network check failed: "+result);
-            Console.WriteLine("Live network checks passed: ICMP, bundled iperf3 upload and download.");
+            var result=await NetworkMeasurements.RunSurveyAsync(true,[host],2,host,5201,1,CancellationToken.None,true,true);
+            if(result["error"] is not null || result["measurementState"] is not null || result["rssi"]?.GetValue<double>() is not <0 ||
+                result["downloadMbps"]?.GetValue<double>() is not >0 || result["uploadMbps"]?.GetValue<double>() is not >0 ||
+                result["pings"]![0]!["received"]!.GetValue<int>()!=2)throw new Exception("Live network check failed: "+result);
+            Console.WriteLine(FormattableString.Invariant($"Live survey passed: {result["frequencyMHz"]} MHz, {result["rssi"]} dBm, ICMP, iperf3 {result["downloadMbps"]} Mbps down / {result["uploadMbps"]} Mbps up."));
         }
     }
 }

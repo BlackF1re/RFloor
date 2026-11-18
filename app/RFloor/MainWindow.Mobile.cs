@@ -20,7 +20,7 @@ public partial class MainWindow {
         if(touchCard is not null){HideTouchCard();return true;}
         if(inlineNameEditor is not null){CommitInlineRename();return true;}
         if(measurementCancellation is not null){measurementCancellation.Cancel();return true;}
-        if(addingPoint||drawingStart is not null||tapeStart is not null||touchDrawingAnchor is not null){ResetPointerTools();RenderPlan();return true;}
+        if(surveyTool != SurveyTool.None||drawingStart is not null||tapeStart is not null||touchDrawingAnchor is not null){ResetPointerTools();RenderPlan();return true;}
         return false;
     }
     private void InitializeResponsiveLayout(){

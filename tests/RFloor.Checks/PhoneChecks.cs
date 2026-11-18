@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -82,7 +83,12 @@ internal static class PhoneChecks {
         PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject {["band"]=band,["bssid"]=band,["rssi"]=-50});
         try {
             foreach(string name in new[]{"RunPing","RunIperf","RunUpload"})view.FindControl<CheckBox>(name)!.IsChecked=false;
-            Call("AddPointMode_Click",view,new RoutedEventArgs());Layout();
+            var add = view.FindControl<Avalonia.Controls.Primitives.ToggleButton>("AddPointTool")!;
+            var repeat = view.FindControl<Avalonia.Controls.Primitives.ToggleButton>("RepeatPointTool")!;
+            var select = view.FindControl<Avalonia.Controls.Primitives.ToggleButton>("SelectPointsTool")!;
+            var delete = view.FindControl<Avalonia.Controls.Primitives.ToggleButton>("DeletePointsTool")!;
+            void Use(Avalonia.Controls.Primitives.ToggleButton button) { button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Layout(); }
+            Use(add);
             using(var finger=host.TouchBegin(At(147,160))){
                 Layout();
                 Require(Get("pointPreview") is not null && document["points"]!.AsArray().Count==0,"Survey point did not preview until release.");
@@ -90,11 +96,35 @@ internal static class PhoneChecks {
             }
             WaitUntil(()=>document["points"] is JsonArray {Count: >0} points && points[0]?["readings"] is JsonArray);
             var point=document["points"]![0]!;
+            Require(add.IsChecked==true,"Add stopped being active after measuring a point.");
+            var marker=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>().Single(e=>ReferenceEquals(e.Tag,point));
+            var grid=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Rectangle>().Select(r=>r.Fill).OfType<DrawingBrush>().Single();
+            var tile=grid.DestinationRect.Rect;
+            double centerX=Canvas.GetLeft(marker)+marker.Width/2, centerY=Canvas.GetTop(marker)+marker.Height/2;
+            bool OnGrid(double value,double start,double step)=>Math.Abs((value-start-step/2)/step-Math.Round((value-start-step/2)/step))<1e-9;
+            Require(OnGrid(centerX,tile.X,tile.Width) && OnGrid(centerY,tile.Y,tile.Height) && marker.Fill is null,"Survey mark did not expose the grid crossing at its center.");
+            Use(add);Require(add.IsChecked==false,"Pressing the current tool again did not clear it.");
             Tap(At(147,160));Require(Get("touchCard") is not null,"Tapping a survey point did not open its measurements.");
-            band="5";Call("AddPointMode_Click",view,new RoutedEventArgs());Tap(At(147,160));
+            band="5";Use(repeat);Tap(At(147,160));
             WaitUntil(()=>point["readings"]!.AsArray().Count==2);
             Require(document["points"]!.AsArray().Count==1 && point["readings"]![0]!["band"]!.ToString()=="2.4" &&
                 point["readings"]![1]!["band"]!.ToString()=="5","Another band replaced the saved reading or duplicated the point.");
+            Use(add);Require(add.IsChecked==true && repeat.IsChecked==false,"Survey tools were not mutually exclusive.");
+            Tap(At(181,192));
+            WaitUntil(()=>document["points"] is JsonArray {Count: >1} points && points[1]?["readings"] is JsonArray);
+            Use(select);
+            var list=view.FindControl<ListBox>("Objects")!;
+            list.SelectedItems!.Clear();
+            Tap(At(147,160));Tap(At(181,192));
+            Require(list.SelectedItems.Count==2,"Survey tool did not add two points to the selection.");
+            list.SelectedItems.Clear();
+            host.MouseDown(At(126,137),MouseButton.Left);
+            host.MouseMove(At(213,219));
+            host.MouseUp(At(213,219),MouseButton.Left);
+            Layout();
+            Require(list.SelectedItems.Count==2,"A mouse marquee did not select both survey points.");
+            Use(delete);Tap(At(147,160));
+            Require(document["points"]!.AsArray().Count==0 && delete.IsChecked==true,"The delete tool did not remove the selected group.");
         } finally {PlatformServices.WifiReader=wifi;}
         Call("CreateNamedPlan");Layout();
         var naming=view.GetVisualDescendants().Single(v=>v.GetType().Name=="OverlayDialog");

@@ -2,7 +2,7 @@ namespace RFloor;
 
 public partial class MainWindow
 {
-    private enum TouchGesture { Tap, Pan, Transform, ObjectDrag, Consumed }
+    private enum TouchGesture { Tap, Pan, Transform, ObjectDrag, Selection, Consumed }
     private const double TouchSlop = 8;
     private readonly Dictionary<int, Point> touches = [];
     private TouchGesture touchGesture;
@@ -75,7 +75,13 @@ public partial class MainWindow
         if(!touchLabels) { touchLabels=true; RenderPlan(); }
         PreviewTouch(local);
         if(measurementCancellation is not null) return;
-        if((surveyMode && !addingPoint || !surveyMode && tool=="select") && hit is not null)
+        if (surveyMode && surveyTool == SurveyTool.Select && hit is null)
+            touchHold=DispatcherTimer.RunOnce(()=>{
+                marqueeStart=marqueeEnd=World(local,false);
+                touchGesture=TouchGesture.Selection;
+                PlatformServices.LongPressFeedback?.Invoke();
+            },TimeSpan.FromMilliseconds(475));
+        else if((surveyMode && surveyTool == SurveyTool.None || !surveyMode && tool=="select") && hit is not null)
             touchHold=DispatcherTimer.RunOnce(()=>StartTouchDrag(hit,local),TimeSpan.FromMilliseconds(475));
         else if(!surveyMode && tool=="tape")
             touchHold=DispatcherTimer.RunOnce(()=>{
@@ -109,6 +115,9 @@ public partial class MainWindow
         } else if(touchGesture==TouchGesture.ObjectDrag && dragItem is {} item && dragStart is Point start) {
             dragDelta=AdjustDrag(item,World(e.GetPosition(Plan),false)-start);
             DrawDragPreview();
+        } else if(touchGesture==TouchGesture.Selection) {
+            marqueeEnd=World(e.GetPosition(Plan),false);
+            DrawMarquee();
         } else if(touchGesture==TouchGesture.Pan || touchGesture==TouchGesture.Tap && ((Vector)(next-touchOrigin)).Length>TouchSlop) {
             bool starting=touchGesture==TouchGesture.Tap;
             if(starting) CancelTouchGesture(clearTapePreview:true);
@@ -136,6 +145,8 @@ public partial class MainWindow
             var delta=AdjustDrag(item,World(local,false)-from);
             CancelTouchGesture();
             if(CanMove(item,delta)) MoveSelected(item,delta);
+        } else if(touchGesture==TouchGesture.Selection && marqueeStart is Point first) {
+            SelectMarquee(first,World(local,false));
         } else if(touchGesture==TouchGesture.Tap && ((Vector)(e.GetPosition(Viewport)-touchOrigin)).Length<=TouchSlop) {
             CommitTouchTap(local,e.GetPosition(Viewport));
         }
@@ -158,7 +169,7 @@ public partial class MainWindow
 
     private void PreviewTouch(Point local)
     {
-        if(surveyMode && addingPoint) { pointPreview=World(local,false); DrawPointPreview(); }
+        if(surveyMode && surveyTool == SurveyTool.Add && measurementCancellation is null) { pointPreview=SurveyPosition(local); DrawPointPreview(); }
         else if(!surveyMode && tool=="router") { routerPreview=World(local); DrawRouterPreview(); }
         else if(!surveyMode && tool=="text") {
             drawingStart=drawingEnd=World(local);drawingFilled=true;DrawConstructionPreview();
@@ -170,10 +181,10 @@ public partial class MainWindow
         }
     }
 
-    private void CommitTouchTap(Point local,Point viewportPoint)
+    private async void CommitTouchTap(Point local,Point viewportPoint)
     {
         var point=World(local,false);
-        if(surveyMode && addingPoint) { SurveyClick(point); return; }
+        if(surveyMode && surveyTool != SurveyTool.None) { await SurveyClick(local,14/(Scale*PlanZoom.ScaleX)); return; }
         if(surveyMode || tool=="select") {
             var hit=touchLabelTarget ?? HitObject(point,14/(Scale*PlanZoom.ScaleX));
             Objects.SelectedItem=hit;
@@ -197,6 +208,10 @@ public partial class MainWindow
     {
         touchHold?.Dispose();
         touchHold=null;
+        if (touchGesture == TouchGesture.Selection) {
+            marqueeStart=marqueeEnd=null;
+            ClearMarquee();
+        }
         if(touches.Count>0) touchGesture=TouchGesture.Consumed;
         if(constructionPreview.Count>0) {
             drawingStart=drawingEnd=null;
@@ -238,15 +253,7 @@ public partial class MainWindow
         HideTouchCard();
         var grid=(Grid)Viewport.Parent!;
         Control content=new TextBlock {Text=ObjectLabel(hit),TextWrapping=TextWrapping.Wrap};
-        if(hit.Kind=="point") {
-            var details=new DockPanel();
-            var repeat=new Button {Content=L("Повторить замер"),Margin=new Thickness(4),IsEnabled=measurementCancellation is null};
-            repeat.Click+=(_,e)=>{HideTouchCard();Measure_Click(repeat,e);};
-            DockPanel.SetDock(repeat,Dock.Bottom);
-            details.Children.Add(repeat);
-            details.Children.Add((Control)PointTooltip(hit.Item).Content!);
-            content=details;
-        }
+        if(hit.Kind=="point") content=PointDetails(hit.Item);
         touchCard=new Border {
             Child=content,
             Background=Brushes.White, BorderBrush=Brushes.LightGray, BorderThickness=new Thickness(1),
