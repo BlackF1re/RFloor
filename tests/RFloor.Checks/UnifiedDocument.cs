@@ -58,10 +58,14 @@ internal static class UnifiedDocument {
         picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
         Require(LayerName()==Localization.L("Сигнал"),"The primary button did not wrap to the first layer.");
         var band=view.FindControl<ComboBox>("BandPicker")!;
+        var plan=view.FindControl<Canvas>("Plan")!;
+        Avalonia.Controls.Shapes.Ellipse[] PointParts()=>plan.Children.OfType<Avalonia.Controls.Shapes.Ellipse>()
+            .Where(e=>ReferenceEquals(e.Tag,points[0])).ToArray();
         band.SelectedIndex=0;
-        Require(Layers().Length==2,"A band with only RSSI offered unrelated layers.");
+        Require(Layers().Length==2 && PointParts().Length==3,"A band with only RSSI offered unrelated layers or did not render the saved point.");
         band.SelectedIndex=2;
         Require(!picker.IsEnabled && Layers().Length==1,"A band without results exposed a measurement layer.");
+        Require(PointParts() is [{Fill:not null}],"A point measured on another band did not become a filled placeholder.");
         band.SelectedIndex=1;
         var file=DispatchProxy.Create<IStorageFile,FileProxy>();var target=(FileProxy)(object)file;((Dictionary<string,IStorageFile>)Get("storageFiles")!).Add(file.Path.ToString(),file);Set("path",file.Path.ToString());Set("dirty",true);
         var save=(Task<bool>)Call("Save",false)!;
@@ -74,6 +78,9 @@ internal static class UnifiedDocument {
         Require(readings.Count==2 && readings[0]!["measurements"]!["downloadMbps"]!.GetValue<int>()==850 &&
             readings[1]!["measurements"]!["rssi"]!.GetValue<int>()==-62,"Multi-band roundtrip lost new or legacy results.");
         Require(Get("dirty") is false,"Save did not clear dirty state.");
+        var documentTabs=view.FindControl<TabControl>("DocumentTabs")!;
+        Require(((TabItem)documentTabs.SelectedItem!).Header is StackPanel {Children:[TextBlock {Text:"sample.rfplan"},_]},
+            "Android tab title contained a storage prefix or repeated extension.");
         Call("AddDocument",restored,"imported.rfplan");
         Require(Get("surveyMode") is true,"An imported survey did not open in measurement mode.");
         var blank=(JsonObject)restored.DeepClone();
@@ -88,12 +95,16 @@ internal static class UnifiedDocument {
                 ["band"]="5",["measurements"]=new JsonObject {["rssi"]=-50-i,
                     ["pings"]=new JsonArray(new JsonObject {["target"]="192.168.2.1",["avg"]=20+40*i})}});
         Call("SwitchMode",true);
-        var plan=view.FindControl<Canvas>("Plan")!;
         var firstTile=plan.Children.OfType<Image>().Single().Source;
         Require(firstTile is Avalonia.Media.Imaging.WriteableBitmap,"Coverage was not rendered as a continuous image.");
         Call("RenderPlan");
         Require(ReferenceEquals(firstTile,plan.Children.OfType<Image>().Single().Source),"An unchanged plan rerasterized the layer.");
         host.Show();Dispatcher.UIThread.RunJobs();host.UpdateLayout();
+        var lastTab=(TabItem)documentTabs.Items[^1]!;
+        var addTab=documentTabs.GetVisualDescendants().OfType<Button>().Single(b=>Equals(b.Content,"＋"));
+        var tabEnd=lastTab.TranslatePoint(new Point(lastTab.Bounds.Width,0),documentTabs)!.Value.X;
+        var addPosition=addTab.TranslatePoint(default,documentTabs)!.Value.X;
+        Require(Math.Abs(addPosition-tabEnd-4)<1,"The create button did not follow the last tab.");
         var badge=view.FindControl<Border>("CoverageHoverBadge")!;
         var hoverText=view.FindControl<TextBlock>("CoverageHoverText")!;
         var hoverMarker=view.FindControl<Avalonia.Controls.Shapes.Ellipse>("CoverageHoverMarker")!;
@@ -144,8 +155,8 @@ internal static class UnifiedDocument {
     public class FileProxy:DispatchProxy {
         internal readonly MemoryStream Bytes=new();
         protected override object? Invoke(MethodInfo? method,object?[]? args)=>method!.Name switch {
-            "get_Name"=>"sample.rfplan",
-            "get_Path"=>new Uri("content://rfloor-test/sample.rfplan"),
+            "get_Name"=>"primary%3ADocuments%2Fsample.rfplan.rfplan",
+            "get_Path"=>new Uri("content://rfloor-test/document/primary%3ADocuments%2Fsample.rfplan.rfplan"),
             "get_CanBookmark"=>false,
             "OpenReadAsync"=>Task.FromResult<Stream>(new MemoryStream(Bytes.ToArray())),
             "OpenWriteAsync"=>Task.FromResult<Stream>(new RetainedStream(Bytes)),

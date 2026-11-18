@@ -52,7 +52,16 @@ public partial class MainWindow
     private string SafePlanName()
     {
         string name=document["name"]?.ToString()??L("Новый план");
-        return string.Concat(name.Select(c=>Path.GetInvalidFileNameChars().Contains(c)?'_':c))+".rfplan";
+        name=PlanNameWithoutExtension(name);
+        string stem=string.Concat(name.Select(c=>Path.GetInvalidFileNameChars().Contains(c)?'_':c));
+        if(string.IsNullOrWhiteSpace(stem))stem=L("Новый план");
+        return OperatingSystem.IsAndroid()?stem:stem+".rfplan";
+    }
+
+    private static string PlanNameWithoutExtension(string name)
+    {
+        while(name.EndsWith(".rfplan",StringComparison.OrdinalIgnoreCase)) name=name[..^7].TrimEnd();
+        return name;
     }
 
     private async void CreateNamedPlan()
@@ -75,7 +84,7 @@ public partial class MainWindow
         string? name=null;
         create.Click+=(_,_)=>{
             string value=field.Text.Trim();
-            if(value.EndsWith(".rfplan",StringComparison.OrdinalIgnoreCase))value=value[..^7].Trim();
+            value=PlanNameWithoutExtension(value);
             if(string.IsNullOrWhiteSpace(value)||value.IndexOfAny(Path.GetInvalidFileNameChars())>=0||value.EndsWith('.')||value.Length>120) {error.Text=L("Введите название до 120 символов без запрещённых символов файла.");return;}
             name=value;dialog.Complete(true);
         };

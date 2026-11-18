@@ -153,7 +153,7 @@ public partial class MainWindow : SurfaceWindow
         var previousSelection = (Objects.SelectedItem as ObjectEntry)?.Item;
         var selectedIds = Objects.SelectedItems.Cast<ObjectEntry>().Select(e=>e.Item).ToList();
         updating = true; Objects.Items.Clear(); Plan.Children.Clear();
-        EmptyPlan.IsVisible = Rooms.Count == 0 && Walls.Count == 0 && Decorations.Count == 0 && Tapes.Count == 0 ? true : false;
+        UpdateEmptyPlan();
         if (drawingStart is null && dragStart is null)
         {
             double min = 0, maxX = 0, maxY = 0;
@@ -291,6 +291,15 @@ public partial class MainWindow : SurfaceWindow
         if (surveyMode) {
             if (measurementCancellation is not null) return;
             double radius=8/(Scale*PlanZoom.ScaleX);
+            if(surveyTool==SurveyTool.Add) {
+                placingSurveyPoint=true;
+                surveyPlacementOrigin=e.GetPosition(Viewport);
+                pointPreview=SurveyPosition(local);
+                Plan.CapturePointer();
+                DrawPointPreview();
+                e.Handled=true;
+                return;
+            }
             if (surveyTool == SurveyTool.Select && HitObject(World(local,false),radius) is null) {
                 marqueeStart=marqueeEnd=World(local,false);
                 Plan.CapturePointer();
@@ -337,10 +346,21 @@ public partial class MainWindow : SurfaceWindow
         var end=World(e.GetPosition(Plan));
         if(drawingEnd!=end){drawingEnd=end;DrawConstructionPreview();}
     }
-    private void Plan_MouseUp(object sender, PointerReleasedEventArgs e)
+    private async void Plan_MouseUp(object sender, PointerReleasedEventArgs e)
     {
         if(e.Pointer.Type==PointerType.Touch)return;
         if(e.Button()!=MouseButton.Left && (drawingStart is null || e.Button()!=drawingButton))return;
+        if(placingSurveyPoint) {
+            placingSurveyPoint=false;
+            Plan.ReleasePointer();
+            var local=e.GetPosition(Plan);
+            pointPreview=null;
+            DrawPointPreview();
+            e.Handled=true;
+            var viewportPoint=e.GetPosition(Viewport);
+            await FinishSurveyPlacement(local,viewportPoint,8,((Vector)(viewportPoint-surveyPlacementOrigin)).Length>=4);
+            return;
+        }
         if(drawingStart is not null && e.Button()!=drawingButton)return;
         if (marqueeStart is Point first) { Plan.ReleasePointer(); SelectMarquee(first,World(e.GetPosition(Plan),false)); return; }
         if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured())
@@ -348,6 +368,8 @@ public partial class MainWindow : SurfaceWindow
             Point to = World(e.GetPosition(Plan), false); var delta = AdjustDrag(item, to-from); bool valid = CanMove(item, delta); Plan.ReleasePointer(); dragStart = null; dragItem = null; dragDelta = new Vector();
             if (((Vector)(to-from)).Length * Scale * PlanZoom.ScaleX >= 4 && delta.Length>=1e-8 && valid) MoveSelected(item, delta);
             else if(dragPreview.Count>0) RenderPlan();
+            else if(((Vector)(to-from)).Length*Scale*PlanZoom.ScaleX<4 && Objects.SelectedItems.Count==1)
+                ShowTouchCard(item,e.GetPosition(Viewport));
             return;
         }
         if (drawingStart is not Point start || !Plan.IsPointerCaptured()) return;

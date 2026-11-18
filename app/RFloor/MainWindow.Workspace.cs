@@ -103,9 +103,15 @@ public partial class MainWindow
         foreach(var session in sessions) {
             var doc=session==activeSession?document:session.Document;string? file=session==activeSession?path:session.Path;
             bool modified=session==activeSession?dirty:session.Dirty;
-            string extension=".rfplan";
-            session.Header.Text=(file is null ? (doc["name"]?.ToString()??L("Новый план"))+extension : System.IO.Path.GetFileName(file))+(modified?" *":"");
-            session.Tab.Tip=file??session.Header.Text;
+            string name=file is null?doc["name"]?.ToString()??L("Новый план"):
+                storageFiles.GetValueOrDefault(file)?.Name??System.IO.Path.GetFileName(file);
+            bool contentFile=file is not null && Uri.TryCreate(file,UriKind.Absolute,out var uri) && uri.Scheme=="content";
+            if(contentFile) {
+                name=Uri.UnescapeDataString(name);
+                name=name[(Math.Max(name.LastIndexOf(':'),name.LastIndexOf('/'))+1)..];
+            }
+            session.Header.Text=PlanNameWithoutExtension(name)+".rfplan"+(modified?" *":"");
+            session.Tab.Tip=contentFile?session.Header.Text:file??session.Header.Text;
         }
         if(activeSession is not null)Title=activeSession.Header.Text+" — RFloor";
     }

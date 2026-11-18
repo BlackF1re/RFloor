@@ -11,6 +11,11 @@ public partial class MainWindow
         TextBox[] fields=[PingTargets,PingCount,IperfHost,IperfPort,IperfDuration,NetworkRefresh];
         CheckBox[] checks=[RunSignal,RunPing,RunIperf,RunUpload];
         string[] texts=fields.Select(x=>x.Text).ToArray();bool?[] states=checks.Select(x=>x.IsChecked).ToArray();
+        double previousDelay=MeasurementDelay.Value;
+        void UpdateDelayText()=>MeasurementDelayText.Text=L("Задержка перед замером · {0:0} с",MeasurementDelay.Value);
+        void DelayChanged(object? sender,RangeBaseValueChangedEventArgs e)=>UpdateDelayText();
+        MeasurementDelay.ValueChanged+=DelayChanged;
+        UpdateDelayText();
         var parent=(Panel)MeasurementSettingsPanel.Parent;int index=parent.Children.IndexOf(MeasurementSettingsPanel);
         bool previousLoading=loadingSettings,accepted=false;loadingSettings=true;
         parent.Children.Remove(MeasurementSettingsPanel);MeasurementSettingsPanel.IsVisible=true;
@@ -124,6 +129,7 @@ public partial class MainWindow
                 var measurementSettings=settings;
                 measurementSettings["runSignal"]=options.Signal;measurementSettings["runPing"]=options.Ping;measurementSettings["runIperf"]=options.Download;measurementSettings["runUpload"]=options.Upload;
                 measurementSettings["pingTargets"]=new JsonArray(options.Targets.Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray());measurementSettings["pingCount"]=options.Count;measurementSettings["iperfHost"]=options.Host;measurementSettings["iperfPort"]=options.Port;measurementSettings["iperfDuration"]=options.Duration;measurementSettings["networkRefreshSeconds"]=interval;
+                measurementSettings["measurementDelaySeconds"]=(int)MeasurementDelay.Value;
                 if(!ReferenceEquals(settings,measurementSettings))settings["surveyDefaults"]=measurementSettings;
                 settings["thresholds"]=colors;networkTimer.Interval=TimeSpan.FromSeconds(interval);
                 showGrid=grid.IsChecked==true;showObjectLabels=names.IsChecked==true;SnapEnabled.IsChecked=snap.IsChecked;labelOpacity=opacity.Value;zoomFactor=zoom.Value;rulerMode=rulers.SelectedIndex;shortcuts=changedBindings;
@@ -135,7 +141,8 @@ public partial class MainWindow
         };
         try{await dialog.ShowAsync();}
         finally {
-            if(!accepted){for(int i=0;i<fields.Length;i++)fields[i].Text=texts[i];for(int i=0;i<checks.Length;i++)checks[i].IsChecked=states[i];}
+            MeasurementDelay.ValueChanged-=DelayChanged;
+            if(!accepted){MeasurementDelay.Value=previousDelay;for(int i=0;i<fields.Length;i++)fields[i].Text=texts[i];for(int i=0;i<checks.Length;i++)checks[i].IsChecked=states[i];}
             ((ScrollViewer)((TabItem)tabs.Items[1]).Content).Content=null;MeasurementSettingsPanel.IsVisible=false;parent.Children.Insert(index,MeasurementSettingsPanel);loadingSettings=previousLoading;
         }
         SwitchMode(surveyMode);RenderPlan();RefreshRulers();RefreshTabHeaders();

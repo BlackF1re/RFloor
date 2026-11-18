@@ -16,10 +16,12 @@
    <c:MenuItem x:Name="SettingsMenu" Header="{DynamicResource UI_20}"><c:MenuItem Header="{DynamicResource UI_21}" InputGesture="Ctrl+OemComma" Click="Preferences_Click" Tag="settings" /><c:MenuItem Header="{DynamicResource UI_22}" Click="Shortcuts_Click" /></c:MenuItem>
   </Menu>
   <DockPanel DockPanel.Dock="Top" Background="#EEEEEE" Margin="8,4,8,0">
-   <c:Button DockPanel.Dock="Right" Content="＋" ToolTip.Tip="{DynamicResource UI_23}" Click="New_Click" Width="32" Margin="4,0,0,0" Padding="0" />
    <TabControl x:Name="DocumentTabs" SelectionChanged="DocumentTabs_SelectionChanged" BorderThickness="0" Background="Transparent">
     <TabControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></TabControl.ItemsPanel>
-    <TabControl.Template><ControlTemplate><ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"/></ScrollViewer></ControlTemplate></TabControl.Template>
+    <TabControl.Template><ControlTemplate><ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><StackPanel Orientation="Horizontal">
+     <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"/>
+     <c:Button Content="＋" ToolTip.Tip="{DynamicResource UI_23}" AutomationProperties.Name="{DynamicResource UI_23}" Click="New_Click" Width="36" Height="28" Margin="4,0,4,0" Padding="0" VerticalAlignment="Center" />
+    </StackPanel></ScrollViewer></ControlTemplate></TabControl.Template>
    </TabControl>
   </DockPanel>
   <c:Border x:Name="StatusBar" DockPanel.Dock="Bottom" Background="White" BorderBrush="#DEDEDE" BorderThickness="0,1,0,0" Padding="12,4"><DockPanel><c:TextBlock DockPanel.Dock="Right" Text="{DynamicResource UI_26}" Foreground="#707070" /><c:TextBlock x:Name="Status" Text="{DynamicResource UI_27}" Foreground="#707070" /></DockPanel></c:Border>
@@ -57,6 +59,8 @@
     <CheckBox x:Name="RunPing" Content="{DynamicResource UI_60}" IsChecked="True" IsCheckedChanged="SettingsChanged" Margin="0,0,0,10" />
     <CheckBox x:Name="RunIperf" Content="{DynamicResource UI_61}" IsChecked="True" IsCheckedChanged="SettingsChanged" Margin="0,0,0,10" />
     <CheckBox x:Name="RunUpload" Content="{DynamicResource UI_62}" IsChecked="True" IsCheckedChanged="SettingsChanged" Margin="0,0,0,18" />
+    <c:TextBlock x:Name="MeasurementDelayText" TextWrapping="Wrap" />
+    <Slider x:Name="MeasurementDelay" Minimum="0" Maximum="10" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,4,0,14" />
     <GroupBox Header="Ping" Margin="0,0,0,12"><StackPanel Margin="12,8">
      <c:TextBlock Text="{DynamicResource UI_63}" /><c:TextBox x:Name="PingTargets" Text="1.1.1.1, 8.8.8.8" TextChanged="SettingsChanged" />
      <c:TextBlock Text="{DynamicResource UI_64}" /><c:TextBox x:Name="PingCount" Text="4" TextChanged="SettingsChanged" />

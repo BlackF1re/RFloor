@@ -10,9 +10,31 @@ public partial class MainWindow
         return point["measurements"] is JsonObject ? [point] : [];
     }
 
-    private JsonObject? MapReading(JsonObject point) => PointReadings(point).LastOrDefault(r=>
-        r["band"]?.ToString()==Band &&
-        string.Equals(AccessPointId(r),SelectedAccessPoint,StringComparison.OrdinalIgnoreCase));
+    private JsonObject? MapReading(JsonObject point) => MapReadingFor(point,Band,SelectedAccessPoint);
+
+    private static JsonObject? MapReadingFor(JsonObject point,string band,string? accessPoint) =>
+        PointReadings(point).LastOrDefault(r=>r["band"]?.ToString()==band &&
+            string.Equals(AccessPointId(r),accessPoint,StringComparison.OrdinalIgnoreCase));
+
+    private static bool ReadingHasFailures(JsonObject? reading)
+    {
+        if(reading?["requested"] is not JsonObject requested) return false;
+        var measurements=reading["measurements"] as JsonObject;
+        bool Missing(string key, params string[] fields) =>
+            requested[key]?.GetValue<bool>()==true && !fields.Any(field=>Numeric(measurements?[field],out _));
+        return Missing("signal","rssi","quality") || Missing("download","downloadMbps") || Missing("upload","uploadMbps") ||
+            requested["ping"]?.GetValue<bool>()==true && requested["pingTargets"] is JsonArray targets &&
+            targets.Any(target=>measurements is null || LayerSample(measurements,new(LayerKind.Ping,target?.ToString())) is null);
+    }
+
+    private bool PointHasFailure(JsonObject point,JsonObject? reading)
+    {
+        if(ReadingHasFailures(reading)) return true;
+        if(point["measurementState"]?.ToString() is not ("failed" or "mixed" or "unverified" or "cancelled")) return false;
+        if(point["attemptBand"] is not {} attempt) return !PointReadings(point).Any();
+        return attempt.ToString()==Band && (point["attemptAccessPoint"] is null ||
+            string.Equals(point["attemptAccessPoint"]?.ToString(),SelectedAccessPoint,StringComparison.OrdinalIgnoreCase));
+    }
 
     private static void SavePointReading(JsonObject point, JsonObject result, JsonObject requested, string band, string? accessPoint)
     {

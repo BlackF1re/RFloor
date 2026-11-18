@@ -41,6 +41,7 @@ public partial class MainWindow
         if (Plan.IsPointerCaptured()) Plan.ReleasePointer();
         tapeStart=tapeCursor=routerPreview=drawingStart=drawingEnd=dragStart=marqueeStart=marqueeEnd=null;
         dragItem=null; dragDelta=new Vector(); pointPreview=null;
+        placingSurveyPoint=false;
         ClearMarquee();
         if (!keepSurveyTool) SetSurveyTool(SurveyTool.None);
     }
@@ -65,9 +66,10 @@ public partial class MainWindow
         var obj=entry.Item;
         if(entry.Kind=="decoration"){DrawDecoration(obj,delta,tint,opacity,tag);return;}
         if(entry.Kind=="point") {
+            if(ReferenceEquals(animatedPoint,obj))return;
             var position=new Point(Number(obj["x"])+delta.X,Number(obj["y"])+delta.Y);
             bool selected=tag is HighlightTag;
-            Plan.Children.Add(CreatePointMarker(position, tint, tag,
+            Plan.Children.Add(CreatePointMarker(position, selected && PointHasFailure(obj,MapReading(obj))?Brushes.Firebrick:tint, tag,
                 selected || tag is SearchHighlightTag?SurveyFocusSize:SurveyMarkerSize, selected?1:opacity));
             return;
         }
@@ -105,6 +107,7 @@ public partial class MainWindow
                 DrawObjectShape(entry,default,SelectionOpacity,Brushes.DarkOrange,HighlightTag);
 
         foreach(var element in Plan.Children.OfType<FrameworkElement>())if(element.Tag is JsonObject obj) {
+            if(ReferenceEquals(animatedPoint,obj))continue;
             element.IsVisible=!chosen.Contains(obj) || surveyMode && element is Ellipse;
         }
         RefreshSurveyHoverRing();
@@ -142,7 +145,10 @@ public partial class MainWindow
                     obj["labelOffset"]=Point((offset?["x"] is null?0:Number(offset["x"]))+delta.X/Scale,(offset?["y"] is null?0:Number(offset["y"]))+delta.Y/Scale);
                     dirty=true;
                 }
-                else Objects.SelectedItem=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(v=>ReferenceEquals(v.Item,obj));
+                else if(Objects.Items.Cast<ObjectEntry>().FirstOrDefault(v=>ReferenceEquals(v.Item,obj)) is {} selected) {
+                    Objects.SelectedItem=selected;
+                    ShowTouchCard(selected,e.GetPosition(Viewport));
+                }
                 label.ReleasePointer();RefreshTabHeaders();
             };
             label.PointerCaptureLost+=(_,_)=>{if(start is not null){Canvas.SetLeft(label,original.X);Canvas.SetTop(label,original.Y);start=null;}};

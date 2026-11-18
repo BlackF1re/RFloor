@@ -83,9 +83,10 @@ public partial class MainWindow
             bool pointsLeft=left==open;
             arrow.Data=Avalonia.Media.Geometry.Parse(pointsLeft?"M 8,2 L 3,7 8,12":"M 3,2 L 8,7 3,12");
             button.IsVisible=activeSession is not null;
-            button.Width=compactLayout?32:24;
+            button.Width=compactLayout?26:24;
+            button.Height=compactLayout?34:40;
             double inset=compactLayout && open?panel.Width+7:0;
-            button.Margin=new Thickness(left?inset:0,compactLayout?102:30,left?0:inset,0);
+            button.Margin=new Thickness(left?inset:0,compactLayout?168:30,left?0:inset,0);
             button.Tip=left?(open?L("Скрыть левую панель"):L("Показать левую панель")):
                 (open?L("Скрыть правую панель"):L("Показать правую панель"));
             AutomationProperties.SetName(button,(string)button.Tip);

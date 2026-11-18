@@ -14,7 +14,7 @@ public partial class MainWindow
         ["pingTargets"] = new JsonArray("1.1.1.1", "8.8.8.8"), ["pingCount"] = 4,
         ["iperfHost"] = "192.168.2.1", ["iperfPort"] = 5201, ["iperfDuration"] = 5,
         ["runPing"] = true, ["runIperf"] = true, ["runUpload"] = true, ["runSignal"] = true,
-        ["networkRefreshSeconds"] = 5, ["coverageRadius"] = CoverageInterpolator.SupportRadius
+        ["networkRefreshSeconds"] = 5, ["measurementDelaySeconds"] = 0, ["coverageRadius"] = CoverageInterpolator.SupportRadius
     };
 
     private void LoadDocumentSettings()

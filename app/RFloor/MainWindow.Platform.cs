@@ -45,13 +45,17 @@ public partial class MainWindow {
         }
         var header=new DockPanel {Margin=new Thickness(16,8)};
         if(dialog.ShowCloseButton) {
-            var close=new Button {Content="×",MinWidth=44,MinHeight=44,Margin=new Thickness(0),
-                FontSize=20,Padding=new Thickness(0),Tip=L("Отмена")};
+            var cross=new Avalonia.Controls.Shapes.Path {
+                Data=Avalonia.Media.Geometry.Parse("M 2,2 L 14,14 M 14,2 L 2,14"),Stroke=Brushes.White,StrokeThickness=1.8,
+                Width=16,Height=16,StrokeLineCap=PenLineCap.Round
+            };
+            var close=new Button {Content=cross,Width=36,Height=36,Margin=new Thickness(12,0,0,0),
+                Padding=new Thickness(0),CornerRadius=new CornerRadius(8),Tip=L("Закрыть")};
             close.Classes.Add("dialogAccent");
-            Avalonia.Automation.AutomationProperties.SetName(close,L("Отмена"));
+            Avalonia.Automation.AutomationProperties.SetName(close,L("Закрыть"));
             close.Click+=(_,_)=>dialog.Cancel();DockPanel.SetDock(close,Dock.Right);header.Children.Add(close);
         }
-        header.Children.Add(new TextBlock {Text=title,FontSize=20,VerticalAlignment=VerticalAlignment.Center});
+        header.Children.Add(new TextBlock {Text=title,FontSize=20,VerticalAlignment=VerticalAlignment.Center,TextWrapping=TextWrapping.Wrap});
         var panel=new DockPanel();DockPanel.SetDock(header,Dock.Top);panel.Children.Add(header);panel.Children.Add(dialog);
         var shade=new Border {Background=new SolidColorBrush(Color.FromArgb(110,0,0,0)),ZIndex=1000+overlays.Count,Padding=new Thickness(12),Child=new Border {Background=Brushes.White,CornerRadius=new CornerRadius(12),MaxWidth=800,MaxHeight=Math.Max(300,Bounds.Height-24),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center,Child=panel}};
         overlays.Add(dialog,shade);RefreshOverlayBounds();root.Children.Add(shade);

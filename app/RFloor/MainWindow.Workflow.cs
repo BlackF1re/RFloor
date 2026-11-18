@@ -84,6 +84,7 @@ public partial class MainWindow
         "mixed"=>L("Во время замера изменился BSSID, диапазон или состояние подключения. Повторите замер."),
         "unverified"=>L("Не удалось подтвердить диапазон и BSSID. Повторите замер после подключения к Wi-Fi."),
         "failed"=>L("Ошибка замера"),
+        "partial"=>L("Замер завершён с ошибками"),
         _=>null
     };
 
@@ -93,13 +94,48 @@ public partial class MainWindow
     {
         var panel = new StackPanel { Margin=new Thickness(6), MaxWidth=340 };
         panel.Children.Add(new TextBlock { Text=ObjectName(point,L("Точка")), FontWeight=FontWeights.SemiBold, Margin=new Thickness(0,0,0,6) });
-        if(MeasurementStateText(point) is {} state)
+        var reading=MapReading(point);
+        bool showState=ReferenceEquals(animatedPoint,point) || PointHasFailure(point,reading);
+        if(showState && MeasurementStateText(point) is {} state)
             panel.Children.Add(new TextBlock {Text=state,TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DarkOrange});
-        if(point["measurementDiagnostic"] is {} diagnostic)
+        if(showState && point["measurementDiagnostic"] is {} diagnostic)
             panel.Children.Add(new TextBlock {Text=diagnostic.ToString(),TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DarkOrange});
-        foreach(var reading in PointReadings(point).DefaultIfEmpty(point))
-            AddReadingDetails(panel,reading);
+        if(reading is not null) AddReadingDetails(panel,reading);
+        else panel.Children.Add(new TextBlock {Text=L("Нет замера в диапазоне {0} ГГц.",Band),TextWrapping=TextWrapping.Wrap});
         return new ScrollViewer {Content=panel,MaxHeight=400,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+    }
+
+    private Control SurveyCardActions(JsonObject point)
+    {
+        var reading=MapReading(point);
+        bool failed=PointHasFailure(point,reading);
+        var action=new Button {Content=failed?L("Исправить"):L("Замерить на другой частоте"),IsEnabled=measurementCancellation is null};
+        action.Classes.Add("dialogAccent");
+        action.HorizontalAlignment=HorizontalAlignment.Right;
+        async Task MeasureOn(string band,string? accessPoint)
+        {
+            if(!Points.Contains(point) || !TryMeasurementOptions(out var options))return;
+            HideTouchCard();
+            await MeasurePointAsync(point,options,select:true,targetBand:band,targetAccessPoint:accessPoint);
+        }
+        if(failed) {
+            string band=Band;
+            string? ap=SelectedAccessPoint;
+            action.Click+=async (_,_)=>await MeasureOn(band,ap);
+        } else {
+            string currentBand=Band;
+            string? selectedAp=SelectedAccessPoint;
+            var flyout=new MenuFlyout();
+            foreach(string band in new[]{"2.4","5","6"}) {
+                if(band==currentBand && reading is not null && Sample(point) is not null) continue;
+                var item=new MenuItem {Header=L("{0} ГГц",band)};
+                string? ap=band==currentBand?selectedAp:null;
+                item.Click+=async (_,_)=>await MeasureOn(band,ap);
+                flyout.Items.Add(item);
+            }
+            action.Flyout=flyout;
+        }
+        return action;
     }
 
     private void AddReadingDetails(StackPanel panel,JsonObject point)

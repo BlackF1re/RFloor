@@ -7,7 +7,13 @@ public partial class MainWindow
     private bool surveyMode;
     private SurveyTool surveyTool;
     private Point? pointPreview;
+    private bool placingSurveyPoint;
+    private Point surveyPlacementOrigin;
     private CancellationTokenSource? measurementCancellation;
+    private JsonObject? animatedPoint;
+    private Control[] animatedMarker=[];
+    private bool waitingForMeasurement;
+    private int measurementFrame;
     private double CoverageRadius => (double)(CoverageRadiusInput.Value ?? (decimal)CoverageInterpolator.SupportRadius);
     private void CoverageRadius_Changed(object? sender,NumericUpDownValueChangedEventArgs e)
     {
@@ -26,6 +32,7 @@ public partial class MainWindow
         if((document["settings"] ?? document["planSettings"]?["surveyDefaults"]) is not JsonObject settings) return;
         CoverageRadiusInput.Value=Numeric(settings["coverageRadius"],out var radius)?(decimal)Math.Clamp(radius,.5,30):(decimal)CoverageInterpolator.SupportRadius;
         NetworkRefresh.Text=settings["networkRefreshSeconds"]?.ToString() ?? "5";
+        MeasurementDelay.Value=Numeric(settings["measurementDelaySeconds"],out var delay)?Math.Clamp(delay,0,10):0;
         RunSignal.IsChecked=settings["runSignal"]?.GetValue<bool>() ?? true; RunPing.IsChecked=settings["runPing"]?.GetValue<bool>() ?? true; RunIperf.IsChecked=settings["runIperf"]?.GetValue<bool>() ?? true; RunUpload.IsChecked=settings["runUpload"]?.GetValue<bool>() ?? settings["runIperf"]?.GetValue<bool>() ?? false;
         PingTargets.Text=settings["pingTargets"] is JsonArray targets?string.Join(", ",targets.Select(t=>t?.GetValue<string>())):"1.1.1.1, 8.8.8.8";
         PingCount.Text=settings["pingCount"]?.ToString() ?? "4"; IperfHost.Text=settings["iperfHost"]?.GetValue<string>() ?? "192.168.2.1"; IperfPort.Text=settings["iperfPort"]?.ToString() ?? "5201"; IperfDuration.Text=settings["iperfDuration"]?.ToString() ?? "5";
@@ -95,7 +102,7 @@ public partial class MainWindow
             Plan.Children.Remove(control);
         if(!surveyMode || surveyTool != SurveyTool.Add || measurementCancellation is not null || pointPreview is not Point p || !CanPlaceSurveyPoint(p)) return;
         DrawMeasurementRays(p);
-        Plan.Children.Add(CreatePointMarker(p, Brushes.DarkOrange, "point-preview", SurveyMarkerSize));
+        foreach(var marker in PointMarkerParts(p, Brushes.DarkOrange, "point-preview")) Plan.Children.Add(marker);
     }
 
     private Point SurveyPosition(Point local)
@@ -167,6 +174,17 @@ public partial class MainWindow
         await MeasurePointAsync(item, options, remember:false, select:true);
     }
 
+    private async Task FinishSurveyPlacement(Point local, Point viewportPoint, double hitSize, bool dragged)
+    {
+        double hitRadius=hitSize/(Scale*PlanZoom.ScaleX);
+        if(!dragged && HitObject(World(local,false),hitRadius) is {} hit) {
+            Objects.SelectedItem=hit;
+            ShowTouchCard(hit,viewportPoint);
+            return;
+        }
+        await SurveyClick(local,hitRadius);
+    }
+
     private async Task DeleteSurveyPointsAsync(IEnumerable<JsonObject> items)
     {
         var points = items.Distinct().Where(Points.Contains).ToArray();
@@ -232,26 +250,85 @@ public partial class MainWindow
 
     private void Measure_Click(object sender, RoutedEventArgs e) => measurementCancellation?.Cancel();
 
-    private async Task MeasurePointAsync(JsonObject item, MeasurementOptions options, bool remember = true, bool select = false)
+    private async Task<string?> MeasurementConnectionError(string band,string? accessPoint,CancellationToken token)
     {
-        var currentDocument=document;
-        string requestedBand=Band; string? requestedAccessPoint=SelectedAccessPoint;
-        SurveyPanel.IsEnabled=false; SettingsMenu.IsEnabled=false; DocumentTabs.IsEnabled=false; SurveyTools.IsEnabled=false; ModeSwitch.IsEnabled=false;
-        measurementCancellation=new CancellationTokenSource(); HistoryTools.IsVisible=false; MeasureButton.IsVisible=true; Status.Text=L("Выполняется замер сети…");
+        using var probe=CancellationTokenSource.CreateLinkedTokenSource(token);
+        probe.CancelAfter(TimeSpan.FromSeconds(5));
         try
         {
+            var wifi=await NetworkMeasurements.ReadWifi(probe.Token);
+            if(wifi["band"]?.ToString()==band && wifi["coverage"]?.GetValue<bool>()!=false &&
+                (accessPoint is null || string.Equals(wifi["bssid"]?.ToString(),accessPoint,StringComparison.OrdinalIgnoreCase)))
+                return null;
+            return L("Подключитесь к нужной точке доступа в диапазоне {0} ГГц.",band);
+        }
+        catch(Exception ex) when(!token.IsCancellationRequested &&
+            ex is OperationCanceledException or InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+        {
+            return L("Не удалось проверить текущий диапазон Wi-Fi.");
+        }
+    }
+
+    private async Task MeasurePointAsync(JsonObject item, MeasurementOptions options, bool remember = true,
+        bool select = false, string? targetBand = null, string? targetAccessPoint = null)
+    {
+        if(measurementCancellation is not null) return;
+        using var cancellation=new CancellationTokenSource();
+        measurementCancellation=cancellation;
+        var currentDocument=document;
+        string requestedBand=targetBand??Band;
+        string? requestedAccessPoint=targetBand is null?SelectedAccessPoint:targetAccessPoint;
+        int delay=(int)MeasurementDelay.Value;
+        SurveyPanel.IsEnabled=false; SettingsMenu.IsEnabled=false; DocumentTabs.IsEnabled=false; SurveyTools.IsEnabled=false; ModeSwitch.IsEnabled=false;
+        HistoryTools.IsVisible=false; MeasureButton.IsVisible=true;
+        var animation=new DispatcherTimer {Interval=TimeSpan.FromMilliseconds(500)};
+        animation.Tick+=(_,_)=>{measurementFrame++; UpdateMeasurementMarker();};
+        try
+        {
+            if(targetBand is not null) {
+                Status.Text=L("Диапазон Wi-Fi");
+                if(await MeasurementConnectionError(targetBand,targetAccessPoint,cancellation.Token) is {} error) {
+                    Status.Text=error;
+                    MessageBox.Show(this,error,L("Диапазон Wi-Fi"));
+                    return;
+                }
+            }
+            animatedPoint=item;
+            waitingForMeasurement=delay>0;
+            measurementFrame=0;
+            animation.Start();
             var requested=new JsonObject { ["signal"]=options.Signal,["ping"]=options.Ping,["download"]=options.Download,["upload"]=options.Upload,
                 ["pingTargets"]=new JsonArray((options.Ping?options.Targets:[]).Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray()) };
             if (remember) Remember();
             item["measurementState"]="running"; item.Remove("measurementDiagnostic"); dirty=true;
+            item["attemptBand"]=requestedBand;
+            item["attemptAccessPoint"]=requestedAccessPoint;
             RenderPlan();
             if (select) Objects.SelectedItem=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(o=>ReferenceEquals(o.Item,item));
-            var result=await NetworkMeasurements.RunSurveyAsync(options.Signal,options.Ping?options.Targets:[],options.Count,(options.Download || options.Upload)?options.Host:null,options.Port,options.Duration,measurementCancellation.Token,options.Download,options.Upload);
+            if(delay>0) {
+                Status.Text=L("Замер начнётся через {0} с.",delay);
+                await Task.Delay(TimeSpan.FromSeconds(delay),cancellation.Token);
+                if(targetBand is not null && await MeasurementConnectionError(targetBand,targetAccessPoint,cancellation.Token) is {} error) {
+                    item["measurementState"]="mixed";
+                    item["measurementDiagnostic"]=error;
+                    Status.Text=error;
+                    return;
+                }
+                waitingForMeasurement=false;
+                measurementFrame=0;
+                animation.Stop();
+                UpdateMeasurementMarker();
+                animation.Start();
+            }
+            Status.Text=L("Выполняется замер сети…");
+            var result=await NetworkMeasurements.RunSurveyAsync(options.Signal,options.Ping?options.Targets:[],options.Count,(options.Download || options.Upload)?options.Host:null,options.Port,options.Duration,cancellation.Token,options.Download,options.Upload);
             if (!ReferenceEquals(document,currentDocument) || !Points.Contains(item)) { Status.Text=L("Проект изменён, результат замера не применён."); return; }
             string? detected=result["band"]?.ToString();
             string? bssid=result["bssid"]?.ToString();
             bool offline=result["coverage"]?.GetValue<bool>()==false;
             string? state=result["measurementState"]?.ToString();
+            if(targetBand is not null && (detected!=targetBand || targetAccessPoint is not null &&
+                !string.Equals(bssid,targetAccessPoint,StringComparison.OrdinalIgnoreCase))) state="mixed";
             if(state is null && offline && requestedAccessPoint is null) state="unverified";
             if(offline) {
                 // A disconnected observation describes signal coverage only, for the explicitly selected AP.
@@ -269,6 +346,8 @@ public partial class MainWindow
                 return;
             }
             SavePointReading(item,result,requested,detected ?? requestedBand,bssid ?? requestedAccessPoint);
+            if(ReadingHasFailures(MapReadingFor(item,detected??requestedBand,bssid??requestedAccessPoint)))
+                item["measurementState"]="partial";
             if(detected is "2.4" or "5" or "6") {
                 updating=true;
                 try {
@@ -282,18 +361,29 @@ public partial class MainWindow
             var settings=document["settings"]!.AsObject(); settings["runSignal"]=options.Signal; settings["runPing"]=options.Ping; settings["runIperf"]=options.Download; settings["runUpload"]=options.Upload;
             settings["pingTargets"]=new JsonArray(options.Targets.Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray()); settings["pingCount"]=options.Count; settings["iperfHost"]=options.Host; settings["iperfPort"]=options.Port; settings["iperfDuration"]=options.Duration;
             dirty=true;
-            Status.Text=result["error"] is null ? L("Замер завершён.") : L("Замер завершён с ошибками — подробности в свойствах точки.");
+            Status.Text=item["measurementState"]?.ToString()=="complete" ? L("Замер завершён.") : L("Замер завершён с ошибками — подробности в свойствах точки.");
         }
-        catch(OperationCanceledException) { item["measurementState"]="cancelled"; Status.Text=L("Замер отменён."); }
-        catch(Exception ex) { item["measurementState"]="failed"; item["measurementDiagnostic"]=ex.Message; Status.Text=L("Ошибка замера: ") + ex.Message; }
+        catch(OperationCanceledException) {
+            if(ReferenceEquals(animatedPoint,item))item["measurementState"]="cancelled";
+            Status.Text=L("Замер отменён.");
+        }
+        catch(Exception ex) {
+            if(ReferenceEquals(animatedPoint,item)) {
+                item["measurementState"]="failed";
+                item["measurementDiagnostic"]=ex.Message;
+            }
+            Status.Text=L("Ошибка замера: ") + ex.Message;
+        }
         finally
         {
             SurveyPanel.IsEnabled=true; SettingsMenu.IsEnabled=true; DocumentTabs.IsEnabled=true; SurveyTools.IsEnabled=true; ModeSwitch.IsEnabled=true;
-            measurementCancellation.Dispose(); measurementCancellation=null; MeasureButton.IsVisible=false; HistoryTools.IsVisible=true;
+            animation.Stop();
+            animatedPoint=null; animatedMarker=[];
+            measurementCancellation=null; MeasureButton.IsVisible=false; HistoryTools.IsVisible=true;
             if(ReferenceEquals(document,currentDocument) && Points.Contains(item)) RenderPlan();
         }
     }
-    private const double SurveyMarkerSize=6, SurveyFocusSize=11;
+    private const double SurveyMarkerSize=7.5, SurveyFocusSize=12;
     private const int SurveyMarkerLayer=152;
     private Border? hoveredSurveyPoint;
     private Ellipse? surveyHoverRing;
@@ -309,11 +399,11 @@ public partial class MainWindow
     {
         if(surveyHoverRing is not null)Plan.Children.Remove(surveyHoverRing);
         surveyHoverRing=null;
-        if(!surveyMode || hoveredSurveyPoint is not { DataContext:JsonObject point } hit ||
+        if(!surveyMode || hoveredSurveyPoint is not { DataContext:JsonObject point } hit || ReferenceEquals(animatedPoint,point) ||
            !ReferenceEquals(hit.Parent,Plan) ||
            Objects.SelectedItems?.OfType<ObjectEntry>().Any(entry=>ReferenceEquals(entry.Item,point))==true) return;
         var position=new Point(Number(point["x"]),Number(point["y"]));
-        surveyHoverRing=CreatePointMarker(position,Brushes.DarkOrange,"point-hover",SurveyFocusSize);
+        surveyHoverRing=CreatePointMarker(position,PointHasFailure(point,MapReading(point))?Brushes.Firebrick:Brushes.DarkOrange,"point-hover",SurveyFocusSize);
         Plan.Children.Add(surveyHoverRing);
     }
 
@@ -327,23 +417,42 @@ public partial class MainWindow
             var sample=Sample(point);
             const double hitSize = 14;
             var position = new Point(Number(point["x"]), Number(point["y"]));
-            var marker = CreatePointMarker(position, Brushes.DarkOrange, point, SurveyMarkerSize);
-            var hit = new Border { Width=hitSize, Height=hitSize, Background=Brushes.Transparent, Tip=PointTooltip(point),
+            var reading=MapReading(point);
+            bool failed=PointHasFailure(point,reading);
+            bool pending=ReferenceEquals(animatedPoint,point);
+            bool placeholder=!pending && !(failed && reading is null) && (activeLayer.Kind==LayerKind.Off?reading is null:sample is null);
+            var color=pending?Brushes.Gray:failed?Brushes.Firebrick:Brushes.DarkOrange;
+            var marker=placeholder
+                ? [CreatePointMarker(position,color,point,SurveyMarkerSize,fill:color)]
+                : PointMarkerParts(position,color,point);
+            var hit = new Border { Width=hitSize, Height=hitSize, Background=Brushes.Transparent,
                 UseLayoutRounding=false, Tag="survey-point-hit",DataContext=point,ZIndex=SurveyMarkerLayer+1 };
+            if(!compactLayout) hit.Tip=PointTooltip(point);
             if(ReferenceEquals(previousHover,point))hoveredSurveyPoint=hit;
             Canvas.SetLeft(hit, Screen(position.X)-hitSize/2);
             Canvas.SetTop(hit, Screen(position.Y)-hitSize/2);
-            Plan.Children.Add(marker);
+            foreach(var part in marker) Plan.Children.Add(part);
+            if(pending) { animatedMarker=marker; UpdateMeasurementMarker(); }
             Plan.Children.Add(hit);
             string value=sample is { } v ? $"{v.Value:0.#} {CoverageUnit(v.Kind)}" : L("нет замера");
 
             Objects.Items.Add(new ObjectEntry($"{index}. {point["name"]?.GetValue<string>() ?? L("Точка")} · {value}",point,"point"));
         }
     }
-    private Ellipse CreatePointMarker(Point position, IBrush stroke, object? tag, double size, double opacity = 1)
+    private Control[] PointMarkerParts(Point position, IBrush color, object tag) =>
+        [CreatePointMarker(position,color,tag,1.5,fill:color),CreatePointMarker(position,color,tag,4.5),
+         CreatePointMarker(position,color,tag,SurveyMarkerSize)];
+
+    private void UpdateMeasurementMarker()
+    {
+        for(int i=0;i<animatedMarker.Length;i++)
+            animatedMarker[i].IsVisible=waitingForMeasurement ? i==0 && measurementFrame%2==0 : i==measurementFrame%3;
+    }
+
+    private Ellipse CreatePointMarker(Point position, IBrush stroke, object? tag, double size, double opacity = 1, IBrush? fill = null)
     {
         var marker = new Ellipse {
-            Width=size, Height=size, Stroke=stroke, StrokeThickness=1.2,
+            Width=size, Height=size, Stroke=fill is null?stroke:null, StrokeThickness=.75,Fill=fill,
             IsHitTestVisible=false, UseLayoutRounding=false, Tag=tag, Opacity=opacity, ZIndex=SurveyMarkerLayer,
             Clip=SurveyMarkerClip(position,size)
         };

@@ -67,6 +67,9 @@ internal static class LayoutChecks {
         var signal=view.FindControl<CheckBox>("RunSignal")!;var originalSignal=signal.IsChecked;
         signal.IsChecked=!originalSignal;
         var ping=view.FindControl<TextBox>("PingCount")!;var originalPing=ping.Text;ping.Text="10";
+        var delay=view.FindControl<Slider>("MeasurementDelay")!; double originalDelay=delay.Value;
+        Require(delay.Minimum==0 && delay.Maximum==10 && delay.IsSnapToTickEnabled,"The delay must offer whole seconds from 0 to 10.");
+        delay.Value=8;
         tabs.SelectedIndex=4;Layout();
         var checks=dialog.GetVisualDescendants().OfType<CheckBox>().Where(c=>c.IsEffectivelyVisible).ToArray();
         Require(checks.Length>=3,"Settings lost checkboxes.");
@@ -76,12 +79,12 @@ internal static class LayoutChecks {
         Require(buttons.Length==2,"Settings action buttons are missing.");
         var apply=buttons.Single(b=>b.IsDefault);var cancel=buttons.Single(b=>b.IsCancel);
         Require(apply.TranslatePoint(default,dialog)!.Value.X>cancel.TranslatePoint(default,dialog)!.Value.X,"Apply must be the rightmost action.");
-        var close=dialog.GetVisualParent()!.GetVisualDescendants().OfType<Button>().Single(b=>Equals(b.Content,"×"));
+        var close=dialog.GetVisualParent()!.GetVisualDescendants().OfType<Button>().Single(b=>Avalonia.Automation.AutomationProperties.GetName(b)==Localization.L("Закрыть"));
         var switchColor=(view.FindControl<Border>("ModeThumb")!.Background as ISolidColorBrush)?.Color;
         Require(switchColor is not null && (apply.Background as ISolidColorBrush)?.Color==switchColor &&
             (close.Background as ISolidColorBrush)?.Color==switchColor,"Apply and Close must use the mode switch accent.");
         cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Layout();
-        Require(signal.IsChecked==originalSignal && ping.Text==originalPing,"Cancel did not roll back measurement settings.");
+        Require(signal.IsChecked==originalSignal && ping.Text==originalPing && delay.Value==originalDelay,"Cancel did not roll back measurement settings.");
         Require(!view.GetVisualDescendants().Any(c=>c.GetType().Name=="OverlayDialog"),"Cancel did not close settings.");
         Require(view.FindControl<Control>("MeasurementSettingsPanel")!.Parent is Panel,"Cancel did not restore measurement settings.");
         host.Close();Console.WriteLine("Layout checks passed: wheel modifiers, cursor anchored zoom, decimal grid cultures, checkbox templates, fixed settings tabs and Cancel.");

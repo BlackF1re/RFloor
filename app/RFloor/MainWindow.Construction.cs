@@ -6,10 +6,15 @@ public partial class MainWindow
 {
     private readonly List<Control> constructionPreview=[];
 
+    private void UpdateEmptyPlan() =>
+        EmptyPlan.IsVisible = drawingStart is null && Rooms.Count == 0 && Walls.Count == 0 &&
+            Decorations.Count == 0 && Tapes.Count == 0;
+
     private void ClearConstructionPreview()
     {
         foreach(var control in constructionPreview)Plan.Children.Remove(control);
         constructionPreview.Clear();
+        UpdateEmptyPlan();
     }
 
     private void DrawConstructionPreview()

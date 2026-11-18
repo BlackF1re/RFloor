@@ -82,9 +82,15 @@ public partial class MainWindow
         return null;
     }
 
-    private (double Value,string Kind)? Sample(JsonObject point) =>
-        LayerSample(MapReading(point)?["measurements"] as JsonObject,
+    private string? activeCoverageKind;
+
+    private (double Value,string Kind)? Sample(JsonObject point)
+    {
+        var sample=LayerSample(MapReading(point)?["measurements"] as JsonObject,
             activeLayer.Kind==LayerKind.Off ? new(LayerKind.Signal) : activeLayer);
+        return sample is { } value && (activeCoverageKind is null || value.Kind==activeCoverageKind ||
+            NoCoverage(value.Value,value.Kind)) ? sample : null;
+    }
 
     private void UpdateLayers(IReadOnlyList<JsonObject> readings)
     {
@@ -156,6 +162,7 @@ public partial class MainWindow
             .Select(p=>(Position:new Point(Number(p["x"]),Number(p["y"])), Measurements:MapReading(p)?["measurements"]))
             .Where(p=>p.Measurements is JsonObject).ToArray();
         UpdateLayers(readings.Select(p=>(JsonObject)p.Measurements!).ToArray());
+        activeCoverageKind=null;
         if(activeLayer.Kind==LayerKind.Off) {
             HeatLegend.Text=availableLayers.Count>1 ? L("Тепловая карта скрыта") : "";
             return;
@@ -165,6 +172,7 @@ public partial class MainWindow
             .Where(p=>p.Sample.HasValue).Select(p=>(p.Position,p.Sample!.Value.Value,p.Sample.Value.Kind)).ToArray();
         var covered=measured.Where(p=>!NoCoverage(p.Value,p.Kind)).ToArray();
         string kind=covered.FirstOrDefault(p=>p.Kind=="rssi").Kind ?? covered.FirstOrDefault().Kind ?? measured[0].Kind;
+        activeCoverageKind=kind;
         var samples=measured.Where(p=>p.Kind==kind || NoCoverage(p.Value,p.Kind)).Select(p=>
             new CoverageInterpolator.Sample(p.Position,NoCoverage(p.Value,p.Kind)?null:p.Value)).ToArray();
         var thresholds=LayerThresholds(kind);

@@ -37,8 +37,10 @@ internal static class PhoneChecks {
         var document=(JsonObject)Get("document")!;
         Call("SetTool","tape");Tap(At(100,100));Require(Get("tapeStart") is not null,"Touch did not set tape origin.");
         Tap(At(220,180));Require(document["geometry"]!["tapes"]!.AsArray().Count==1,"Touch did not finish tape.");
-        Call("SetTool","rect");Tap(At(100,250));
-        using(var finger=host.TouchBegin(At(220,320))){
+        Call("SetTool","rect");
+        using(var finger=host.TouchBegin(At(100,250))){
+            WaitUntil(()=>Get("touchGesture")?.ToString()=="Drawing");
+            host.TouchMove(finger,At(220,320));
             Layout();
             Require(Get("drawingStart") is not null && document["geometry"]!["decorations"]!.AsArray().Count==0,"Construction did not preview before release.");
             host.TouchEnd(finger,At(220,320));
@@ -56,7 +58,7 @@ internal static class PhoneChecks {
             document["geometry"]!["decorations"]!.AsArray().Count==1,"Panning changed zoom or created an object.");
         viewport.Offset=default;Layout();
         Call("SetTool","select");Tap(At(150,280));
-        Require(Get("touchCard") is null,"Tapping an object with a hidden label opened its label.");
+        Require(Get("touchCard") is not null,"An object with a hidden label did not offer editing actions.");
         decoration["label"]=new JsonObject {["visible"]=true};
         Call("RenderPlan");Layout();
         Tap(At(150,280));
@@ -74,6 +76,12 @@ internal static class PhoneChecks {
             host.TouchEnd(finger,At(180,290));Layout();
             Require(decoration["x"]!.ToString()!=oldX,"Long press movement did not commit.");
         } finally {PlatformServices.LongPressFeedback=oldFeedback;}
+        using(var finger=host.TouchBegin(At(75,230))){
+            WaitUntil(()=>Get("touchGesture")?.ToString()=="Selection");
+            host.TouchMove(finger,At(265,370));host.TouchEnd(finger,At(265,370));Layout();
+        }
+        Require(view.FindControl<ListBox>("Objects")!.SelectedItems!.Count==1 && Get("touchCard") is null,
+            "Plan long press did not start marquee selection without opening an object card.");
         Call("SetTool","rect");
         var zoom=(ScaleTransform)view.FindControl<LayoutTransformControl>("ZoomHost")!.LayoutTransform!;double before=zoom.ScaleX;
         using(var first=host.TouchBegin(At(100,100)))using(var second=host.TouchBegin(At(200,100))){host.TouchMove(second,At(270,100));host.TouchEnd(second,At(270,100));host.TouchEnd(first,At(100,100));}Layout();
@@ -81,6 +89,13 @@ internal static class PhoneChecks {
         Require(document["geometry"]!["decorations"]!.AsArray().Count==1,"Pinch created an accidental primitive.");
         viewport.Offset=default;
         zoom.ScaleX=zoom.ScaleY=1;Layout();
+        Call("SetTool","select");Tap(At(180,290));
+        var objectCard=(Border)Get("touchCard")!;
+        var deleteObject=objectCard.GetVisualDescendants().OfType<Button>().Single(b=>Equals(b.Content,Localization.L("Удалить")));
+        deleteObject.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Layout();
+        var objectConfirmation=view.GetVisualDescendants().Single(v=>v.GetType().Name=="OverlayDialog");
+        objectConfirmation.GetVisualDescendants().OfType<Button>().Single(b=>!b.IsCancel).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Layout();Require(document["geometry"]!["decorations"]!.AsArray().Count==0,"The plan object card could not delete a primitive.");
         Call("AddRoom_Click",view,new RoutedEventArgs());Layout();
         Call("SwitchMode",true);
         var wifi=PlatformServices.WifiReader;string band="2.4";
@@ -93,7 +108,8 @@ internal static class PhoneChecks {
             var delete = view.FindControl<Avalonia.Controls.Primitives.ToggleButton>("DeletePointsTool")!;
             void Use(Avalonia.Controls.Primitives.ToggleButton button) { button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); Layout(); }
             Use(add);
-            using(var finger=host.TouchBegin(At(147,160))){
+            using(var finger=host.TouchBegin(At(104,136))){
+                host.TouchMove(finger,At(147,160));
                 Layout();
                 Require(Get("pointPreview") is not null && document["points"]!.AsArray().Count==0,"Survey point did not preview until release.");
                 host.TouchEnd(finger,At(147,160));
@@ -101,26 +117,67 @@ internal static class PhoneChecks {
             WaitUntil(()=>document["points"] is JsonArray {Count: >0} points && points[0]?["readings"] is JsonArray);
             var point=document["points"]![0]!;
             Require(add.IsChecked==true,"Add stopped being active after measuring a point.");
-            var marker=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>().Single(e=>ReferenceEquals(e.Tag,point));
+            var markerParts=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>().Where(e=>ReferenceEquals(e.Tag,point)).ToArray();
+            var marker=markerParts.Single(e=>e.Fill is not null);
+            Require(marker.Width==1.5 && marker.Stroke is null &&
+                markerParts.Where(e=>e.Fill is null).All(e=>e.StrokeThickness==.75 && e.Width<=7.5),
+                "Survey markers should stay compact without a stroke on the center.");
             var grid=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Rectangle>().Select(r=>r.Fill).OfType<DrawingBrush>().Single();
             var tile=grid.DestinationRect.Rect;
             double centerX=Canvas.GetLeft(marker)+marker.Width/2, centerY=Canvas.GetTop(marker)+marker.Height/2;
             bool OnGrid(double value,double start,double step)=>Math.Abs((value-start-step/2)/step-Math.Round((value-start-step/2)/step))<1e-9;
-            Require(OnGrid(centerX,tile.X,tile.Width) && OnGrid(centerY,tile.Y,tile.Height) && marker.Fill is null,"Survey mark did not expose the grid crossing at its center.");
-            Use(add);Require(add.IsChecked==false,"Pressing the current tool again did not clear it.");
+            Require(OnGrid(centerX,tile.X,tile.Width) && OnGrid(centerY,tile.Y,tile.Height) && markerParts.Length==3 &&
+                markerParts.Count(e=>e.Fill is not null)==1 && markerParts.All(e=>Canvas.GetLeft(e)+e.Width/2==centerX && Canvas.GetTop(e)+e.Height/2==centerY),
+                "The survey dot and rings did not share a centered grid crossing.");
             Tap(At(147,160));Require(Get("touchCard") is not null,"Tapping a survey point did not open its measurements.");
-            band="5";Use(repeat);Tap(At(147,160));
+            MenuItem OtherBand()=>((MenuFlyout)((Border)Get("touchCard")!).GetVisualDescendants().OfType<Button>()
+                .Single(b=>Equals(b.Content,Localization.L("Замерить на другой частоте"))).Flyout!).Items.OfType<MenuItem>()
+                .Single(i=>Equals(i.Header,Localization.L("{0} ГГц","5")));
+            OtherBand().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            WaitUntil(()=>view.GetVisualDescendants().Any(v=>v.GetType().Name=="OverlayDialog"));
+            Require(point["readings"]!.AsArray().Count==1,"A Wi-Fi band mismatch changed the saved reading.");
+            view.HandleBack();Layout();
+            Tap(At(147,160));
+            var delay=view.FindControl<Slider>("MeasurementDelay")!;delay.Value=1;band="5";
+            OtherBand().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            WaitUntil(()=>Get("waitingForMeasurement") is true && Get("animatedPoint") is not null);
+            WaitUntil(()=>Get("measurementFrame") is 1 && Get("waitingForMeasurement") is true);
+            Require(((Control[])Get("animatedMarker")!).All(part=>!part.IsVisible),"The delay did not blink the central dot off.");
+            WaitUntil(()=>Get("waitingForMeasurement") is false && Get("measurementFrame") is 1);
+            Require(((Control[])Get("animatedMarker")!).Select(part=>part.IsVisible).SequenceEqual(new[]{false,true,false}),
+                "Measurement did not step through its gray marker parts.");
             WaitUntil(()=>point["readings"]!.AsArray().Count==2);
             Require(document["points"]!.AsArray().Count==1 && point["readings"]![0]!["band"]!.ToString()=="2.4" &&
                 point["readings"]![1]!["band"]!.ToString()=="5","Another band replaced the saved reading or duplicated the point.");
+            delay.Value=0;
+            Use(add);Require(add.IsChecked==false,"Pressing the current tool again did not clear it.");
+            Use(repeat);
             Use(add);Require(add.IsChecked==true && repeat.IsChecked==false,"Survey tools were not mutually exclusive.");
             Tap(At(48,192));
             WaitUntil(()=>document["points"] is JsonArray {Count: >1} points && points[1]?["readings"] is JsonArray);
             var wallPoint=document["points"]![1]!;
-            var wallMarker=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>().Single(e=>ReferenceEquals(e.Tag,wallPoint));
+            var wallMarker=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>()
+                .Where(e=>ReferenceEquals(e.Tag,wallPoint)).MaxBy(e=>e.Width)!;
+            double middle=wallMarker.Width/2;
             Require(wallPoint["x"]!.GetValue<double>()==0 && wallMarker.Clip is {} clip &&
-                clip.FillContains(new Point(4,3)) && !clip.FillContains(new Point(2,3)),
+                clip.FillContains(new Point(middle+1,middle)) && !clip.FillContains(new Point(middle-1,middle)),
                 "Touch did not save a wall-facing survey point with a clipped marker.");
+            var iperf=PlatformServices.IperfRunner;
+            try {
+                view.FindControl<CheckBox>("RunIperf")!.IsChecked=true;
+                PlatformServices.IperfRunner=(_,_,_,_,_)=>Task.FromResult("""{"error":"test failure"}""");
+                Use(repeat);Tap(At(48,192));
+                WaitUntil(()=>wallPoint["measurementState"]?.ToString()=="partial" && Get("animatedPoint") is null);
+                var failedParts=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>()
+                    .Where(e=>ReferenceEquals(e.Tag,wallPoint)).ToArray();
+                Require(failedParts.Length==3 && failedParts.All(e=>Equals(e.Fill??e.Stroke,Brushes.Firebrick)),"An enabled failed test did not turn the marker red.");
+                Use(repeat);Tap(At(48,192));
+                var repair=((Border)Get("touchCard")!).GetVisualDescendants().OfType<Button>()
+                    .Single(b=>Equals(b.Content,Localization.L("Исправить")));
+                PlatformServices.IperfRunner=(_,_,_,_,_)=>Task.FromResult("""{"end":{"sum_received":{"bits_per_second":500000000}}}""");
+                repair.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                WaitUntil(()=>wallPoint["measurementState"]?.ToString()=="complete" && Get("animatedPoint") is null);
+            } finally {PlatformServices.IperfRunner=iperf;}
             Use(select);
             var list=view.FindControl<ListBox>("Objects")!;
             list.SelectedItems!.Clear();
