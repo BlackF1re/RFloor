@@ -27,6 +27,24 @@ internal static class CoverageChecks
         var duplicates=new CoverageInterpolator(triangle.Concat(Enumerable.Repeat(triangle[0],200)).Append(new(new(0,0),-50)));
         Check(Math.Abs(duplicates.Estimate(new(0,0))!.Value.Value+50)<1e-8,"Duplicate coordinates biased the latest reading.");
 
+        // The narrow triangle from a survey that used to render as detached squares.
+        var narrow=new CoverageInterpolator([new(new(6,.5),-49),new(new(5.2,1.7),-45),new(new(5.5,3),-45)]);
+        var bounds=new Rect(4,0,3,4);
+        Avalonia.Media.Color Green(double value,byte alpha)=>Avalonia.Media.Color.FromArgb(alpha,0,255,0);
+        var pixels=narrow.Rasterize(bounds,300,400,Green)!;
+        byte AlphaAt(int x,int y)=>pixels[(y*300+x)*4+3];
+        for(int y=52;y<298;y++) {
+            double worldY=(y+.5)/100;
+            double left=worldY<1.7?6+(5.2-6)*(worldY-.5)/1.2:5.2+(5.5-5.2)*(worldY-1.7)/1.3;
+            double right=6+(5.5-6)*(worldY-.5)/2.5;
+            int x=(int)(((left+right)/2-4)*100);
+            Check(AlphaAt(x,y)>0,"The narrow triangle has a detached row.");
+        }
+        Check(AlphaAt(15,160)==0,"The raster paints beyond the survey footprint.");
+        Check(uncovered.Rasterize(new Rect(0,0,3,3),60,60,Green) is null,"Rasterization turned missing coverage into color.");
+        var masked=blocked.Rasterize(new Rect(0,0,3,3),60,60,Green)!;
+        Check(masked[(5*60+5)*4+3]==0 && masked[(5*60+25)*4+3]>0,"Rasterization ignored a wall mask.");
+
         // A grid exercises cocircular points and shared edges. Any affine field
         // must be reproduced exactly, independently of sample density.
         double Affine(double x,double y)=>-90+3*x+2*y;

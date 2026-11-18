@@ -39,10 +39,14 @@
     <c:TextBlock Text="{DynamicResource UI_43}" TextWrapping="Wrap" Foreground="#707070" Margin="0,0,0,16" />
     <c:TextBlock Text="{DynamicResource UI_MultiBandSurvey}" TextWrapping="Wrap" Foreground="#707070" Margin="0,0,0,16" />
     <c:TextBlock Text="{DynamicResource UI_44}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="BandPicker" SelectedIndex="1" SelectionChanged="SurveyView_Changed" Margin="0,7,0,16" Padding="8"><ComboBoxItem Content="{DynamicResource UI_45}" Tag="2.4" /><ComboBoxItem Content="{DynamicResource UI_46}" Tag="5" /><ComboBoxItem Content="{DynamicResource UI_47}" Tag="6" /></ComboBox>
-    <c:TextBlock Text="{DynamicResource UI_48}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="AccessPointPicker" SelectionChanged="AccessPoint_Changed" Margin="0,7,0,16" Padding="8" /><c:TextBlock Text="{DynamicResource UI_49}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="MetricPicker" SelectedIndex="0" SelectionChanged="SurveyView_Changed" Margin="0,7,0,16" Padding="8"><ComboBoxItem Content="{DynamicResource UI_50}" Tag="signal" /><ComboBoxItem Content="Ping" Tag="ping" /><ComboBoxItem Content="{DynamicResource UI_51}" Tag="download" /><ComboBoxItem Content="{DynamicResource UI_52}" Tag="upload" /></ComboBox>
+    <c:TextBlock Text="{DynamicResource UI_48}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="AccessPointPicker" SelectionChanged="AccessPoint_Changed" Margin="0,7,0,16" Padding="8" />
+    <SplitButton x:Name="LayerPicker" Click="NextLayer_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" MinHeight="44" Margin="0,0,0,10">
+     <TextBlock x:Name="LayerLabel" TextTrimming="CharacterEllipsis" />
+     <SplitButton.Flyout><MenuFlyout /></SplitButton.Flyout>
+    </SplitButton>
+    <c:TextBlock x:Name="HeatLegend" TextWrapping="Wrap" Foreground="#707070" FontSize="11" Margin="0,0,0,16" />
     <c:TextBlock Text="{DynamicResource UI_CoverageRadius}" TextWrapping="Wrap" />
     <NumericUpDown x:Name="CoverageRadiusInput" Minimum="0.5" Maximum="30" Increment="0.5" Value="4.5" FormatString="0.##" ValueChanged="CoverageRadius_Changed" Margin="0,6,0,12" />
-    <CheckBox x:Name="ShowHeat" Content="{DynamicResource UI_53}" IsChecked="True" IsCheckedChanged="SurveyView_Changed" Margin="0,0,0,8" /><c:TextBlock x:Name="HeatLegend" Text="{DynamicResource UI_54}" TextWrapping="Wrap" Foreground="#707070" FontSize="11" Margin="0,0,0,16" />
     <c:TextBlock x:Name="NetworkStatus" Text="{DynamicResource UI_55}" TextWrapping="Wrap" Foreground="#707070" Margin="0,0,0,16" />
     <c:TextBlock Text="{DynamicResource UI_56}" TextWrapping="Wrap" Foreground="#707070" FontSize="11" />
    </StackPanel>

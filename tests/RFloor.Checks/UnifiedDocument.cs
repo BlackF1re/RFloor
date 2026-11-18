@@ -2,14 +2,18 @@ using System.Reflection;
 using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using RFloor;
 
 internal static class UnifiedDocument {
     private const BindingFlags Flags=BindingFlags.Instance|BindingFlags.NonPublic;
     public static void Run(){
-        var view=new MainWindow();var host=new Window {Content=view};
+        var view=new MainWindow();var host=new Window {Width=1440,Height=900,Content=view};
         object? Call(string name,params object?[] args)=>typeof(MainWindow).GetMethod(name,Flags)!.Invoke(view,args);
         object? Get(string name)=>typeof(MainWindow).GetField(name,Flags)!.GetValue(view);
         void Set(string name,object? value)=>typeof(MainWindow).GetField(name,Flags)!.SetValue(view,value);
@@ -17,11 +21,46 @@ internal static class UnifiedDocument {
         var source=JsonNode.Parse(File.ReadAllText(System.IO.Path.Combine(AppContext.BaseDirectory,"sample.rfplan")))!.AsObject();
         Call("AddDocument",source,null);Call("SwitchMode",false);
         var points=source["points"]!.AsArray();points.Clear();
-        points.Add(JsonNode.Parse("""{"id":"sample","x":1,"y":1,"band":"5","measurements":{"rssi":-55,"downloadMbps":850,"uploadMbps":720,"frequencyMHz":5180,"ssid":"Test","bssid":"aa:bb:cc:dd:ee:ff","pings":[{"target":"192.168.2.1","avg":2,"loss":0}]}}"""));
+        points.Add(JsonNode.Parse("""{"id":"sample","x":1,"y":1,"band":"5","measurements":{"rssi":-55,"downloadMbps":850,"uploadMbps":720,"frequencyMHz":5180,"ssid":"Test","bssid":"aa:bb:cc:dd:ee:ff","pings":[{"target":"192.168.2.1","avg":2,"loss":0},{"target":"8.8.8.8","avg":45},{"target":"timeout.test","avg":null,"loss":100}]}}"""));
         typeof(MainWindow).GetMethod("SavePointReading",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,
             [points[0],new JsonObject {["rssi"]=-62,["frequencyMHz"]=2437,["bssid"]="aa:bb:cc:dd:ee:01"},
                 new JsonObject {["signal"]=true},"2.4","aa:bb:cc:dd:ee:01"]);
         Call("SwitchMode",true);Require(points.Count==1,"Switching modes discarded measurements.");
+        var picker=view.FindControl<SplitButton>("LayerPicker")!;
+        var pickerItems=(MenuFlyout)picker.Flyout!;
+        MenuItem[] Layers()=>pickerItems.Items.OfType<MenuItem>().ToArray();
+        string LayerName()=>view.FindControl<TextBlock>("LayerLabel")!.Text!;
+        Require(Layers().Select(i=>(string)i.Header!).SequenceEqual(new[]{
+            Localization.L("Сигнал"),Localization.L("iperf3 · скачивание"),Localization.L("iperf3 · отправка"),
+            Localization.L("Ping · {0}","192.168.2.1"),Localization.L("Ping · {0}","8.8.8.8"),Localization.L("Слои выключены")}),
+            "Layer choices were not derived from the available results.");
+        host.Show();Dispatcher.UIThread.RunJobs();host.UpdateLayout();
+        void ClickLayerPart(string name) {
+            var button=picker.GetVisualDescendants().OfType<Button>().Single(b=>b.Name==name);
+            var at=button.TranslatePoint(new Point(button.Bounds.Width/2,button.Bounds.Height/2),host)!.Value;
+            host.MouseDown(at,MouseButton.Left);host.MouseUp(at,MouseButton.Left);Dispatcher.UIThread.RunJobs();
+        }
+        ClickLayerPart("PART_PrimaryButton");
+        Require(LayerName()==Localization.L("iperf3 · скачивание") && Layers()[1].IsChecked,"The primary button did not cycle the active layer.");
+        ClickLayerPart("PART_SecondaryButton");
+        Require(pickerItems.IsOpen && LayerName()==Localization.L("iperf3 · скачивание"),"The arrow did not open the layer list independently.");
+        Layers()[4].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        pickerItems.Hide();host.Hide();
+        Require(LayerName()==Localization.L("Ping · {0}","8.8.8.8") && Layers().Count(i=>i.IsChecked)==1 && Layers()[4].IsChecked,
+            "The selected host was not marked as the active layer.");
+        var entry=view.FindControl<ListBox>("Objects")!.Items[0]!;
+        var entryLabel=(string)entry.GetType().GetProperty("Label")!.GetValue(entry)!;
+        Require(entryLabel.EndsWith($" · 45 {Localization.L("мс")}"),"The ping layer displayed a different target's latency.");
+        picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
+        Require(LayerName()==Localization.L("Слои выключены"),"The primary button did not include the off state.");
+        picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
+        Require(LayerName()==Localization.L("Сигнал"),"The primary button did not wrap to the first layer.");
+        var band=view.FindControl<ComboBox>("BandPicker")!;
+        band.SelectedIndex=0;
+        Require(Layers().Length==2,"A band with only RSSI offered unrelated layers.");
+        band.SelectedIndex=2;
+        Require(!picker.IsEnabled && Layers().Length==1,"A band without results exposed a measurement layer.");
+        band.SelectedIndex=1;
         var file=DispatchProxy.Create<IStorageFile,FileProxy>();var target=(FileProxy)(object)file;((Dictionary<string,IStorageFile>)Get("storageFiles")!).Add(file.Path.ToString(),file);Set("path",file.Path.ToString());Set("dirty",true);
         var save=(Task<bool>)Call("Save",false)!;
         var deadline=DateTime.UtcNow.AddSeconds(10);while(!save.IsCompleted && DateTime.UtcNow<deadline){Dispatcher.UIThread.RunJobs();Thread.Sleep(1);}
@@ -39,6 +78,20 @@ internal static class UnifiedDocument {
         blank["points"]!.AsArray().Clear();
         Call("AddDocument",blank,"blank.rfplan");
         Require(Get("surveyMode") is false,"An imported plan without readings did not open in plan mode.");
+        var room=blank["geometry"]!["rooms"]![0]!;
+        double x=room["x"]!.GetValue<double>(),y=room["y"]!.GetValue<double>();
+        double w=room["w"]!.GetValue<double>(),h=room["h"]!.GetValue<double>();
+        for(int i=0;i<3;i++)
+            blank["points"]!.AsArray().Add(new JsonObject {["id"]=$"tile-{i}",["x"]=x+w*(i==1?.7:.3),["y"]=y+h*(i==2?.7:.3),
+                ["band"]="5",["measurements"]=new JsonObject {["rssi"]=-50-i}});
+        Call("SwitchMode",true);
+        var plan=view.FindControl<Canvas>("Plan")!;
+        var firstTile=plan.Children.OfType<Image>().Single().Source;
+        Require(firstTile is Avalonia.Media.Imaging.WriteableBitmap,"Coverage was not rendered as a continuous image.");
+        Call("RenderPlan");
+        Require(ReferenceEquals(firstTile,plan.Children.OfType<Image>().Single().Source),"An unchanged plan rerasterized the layer.");
+        picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
+        Require(!plan.Children.OfType<Image>().Any(),"Turning layers off left a coverage image on the plan.");
         host.Width=1;view.Measure(new Size(1,800));view.Arrange(new Rect(0,0,1,800));Call("UpdateResponsiveLayout");
         foreach(double width in new[]{360d,412d,1440d}){
             host.Width=width;host.Height=800;view.Measure(new Size(width,800));view.Arrange(new Rect(0,0,width,800));Call("UpdateResponsiveLayout");
@@ -46,7 +99,7 @@ internal static class UnifiedDocument {
             if(width<840){Require(!view.FindControl<Control>("LeftSidebar")!.IsEnabled,"Closed phone drawer can still receive input.");Call("ToggleDrawer",view.FindControl<Control>("LeftSidebar"));Require(view.HandleBack(),"Back did not dismiss drawer.");}
             Require(view.FindControl<Control>("ModeSwitch")!.Bounds.Width<=144,"Mode switch is too wide.");
         }
-        host.Content=null;Console.WriteLine("Document checks passed: content-URI save, measurements and geometry roundtrip, clean state, phone drawers and desktop restoration.");
+        host.Close();Console.WriteLine("Document checks passed: content-URI save, roundtrip, filtered layer menu and bitmap reuse, phone drawers and desktop restoration.");
     }
     public class FileProxy:DispatchProxy {
         internal readonly MemoryStream Bytes=new();

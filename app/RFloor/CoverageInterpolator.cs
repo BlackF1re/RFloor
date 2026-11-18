@@ -7,6 +7,22 @@ internal sealed class CoverageInterpolator
 {
     internal readonly record struct Sample(Point Position, double? Value);
     private readonly record struct Triangle(int A, int B, int C);
+    private readonly record struct Patch(Sample A, Sample B, Sample C)
+    {
+        private readonly Vector ab=B.Position-A.Position, ac=C.Position-A.Position;
+        private readonly double area=Cross(B.Position-A.Position,C.Position-A.Position);
+        internal double Left => Math.Min(A.Position.X,Math.Min(B.Position.X,C.Position.X));
+        internal double Right => Math.Max(A.Position.X,Math.Max(B.Position.X,C.Position.X));
+        internal double Top => Math.Min(A.Position.Y,Math.Min(B.Position.Y,C.Position.Y));
+        internal double Bottom => Math.Max(A.Position.Y,Math.Max(B.Position.Y,C.Position.Y));
+
+        internal bool Contains(Point p,out double wa,out double wb,out double wc)
+        {
+            var offset=p-A.Position;
+            wb=Cross(offset,ac)/area; wc=Cross(ab,offset)/area; wa=1-wb-wc;
+            return wa>=-1e-8 && wb>=-1e-8 && wc>=-1e-8;
+        }
+    }
     private readonly Sample[] samples;
     private readonly Point[] positions;
     private readonly List<Triangle> triangles=[];
@@ -57,28 +73,80 @@ internal sealed class CoverageInterpolator
     {
         if(!double.IsFinite(position.X)||!double.IsFinite(position.Y))return null;
         foreach(var t in triangles) {
-            var a=samples[t.A];var b=samples[t.B];var c=samples[t.C];
-            double area=Cross(b.Position-a.Position,c.Position-a.Position);
-            double wb=Cross(position-a.Position,c.Position-a.Position)/area;
-            double wc=Cross(b.Position-a.Position,position-a.Position)/area;
-            double wa=1-wb-wc;
-            if(wa < -1e-8||wb < -1e-8||wc < -1e-8)continue;
-            var support=new[]{(a,Math.Max(0,wa)),(b,Math.Max(0,wb)),(c,Math.Max(0,wc))};
-            // Unknown coverage is categorical: never invent an RSSI value for it.
-            // Triangles touching an uncovered reading stay blank until sampled further.
-            if(support.Any(s=>s.Item2>1e-8 && s.Item1.Value is null))return null;
-            double nearest=double.PositiveInfinity,farthest=0,value=0;
-            foreach(var (sample,weight) in support.Where(s=>s.Item2>1e-8)) {
-                double distance=((Vector)(sample.Position-position)).Length;
-                if(blocked(position,sample.Position))return null;
-                nearest=Math.Min(nearest,distance);farthest=Math.Max(farthest,distance);
-                value+=sample.Value!.Value*weight;
-            }
-            // One nearby sample cannot justify a large unsurveyed triangle.
-            if(farthest>radius)return null;
-            double opacity=Math.Clamp(1-nearest/radius,.15,1);
-            return (value,opacity);
+            var patch=new Patch(samples[t.A],samples[t.B],samples[t.C]);
+            if(patch.Contains(position,out var wa,out var wb,out var wc))
+                return Evaluate(patch,position,wa,wb,wc);
         }
         return null;
+    }
+
+    private (double Value,double Confidence)? Evaluate(Patch patch,Point position,double wa,double wb,double wc)
+    {
+        double nearest=double.PositiveInfinity, value=0;
+        if(!AddSupport(patch.A,position,wa,ref nearest,ref value) ||
+           !AddSupport(patch.B,position,wb,ref nearest,ref value) ||
+           !AddSupport(patch.C,position,wc,ref nearest,ref value)) return null;
+        return (value,Math.Clamp(1-Math.Sqrt(nearest)/radius,.15,1));
+    }
+
+    private bool AddSupport(Sample sample,Point position,double weight,ref double nearest,ref double value)
+    {
+        if(weight<=1e-8) return true;
+        if(sample.Value is not double measured) return false;
+        double squaredDistance=((Vector)(sample.Position-position)).SquaredLength;
+        if(squaredDistance>radius*radius || blocked(position,sample.Position)) return false;
+        nearest=Math.Min(nearest,squaredDistance);
+        value+=measured*weight;
+        return true;
+    }
+
+    // Rasterize the triangle footprint with four subpixel samples per pixel.
+    // Each subpixel belongs to the first matching triangle, including shared edges.
+    internal byte[]? Rasterize(Rect bounds,int width,int height,Func<double,byte,Color> palette)
+    {
+        if(triangles.Count==0) return null;
+        int subWidth=width*2,subHeight=height*2;
+        double dx=bounds.Width/subWidth,dy=bounds.Height/subHeight;
+        var surface=new uint[subWidth*subHeight];
+        bool painted=false;
+        foreach(var t in triangles) {
+            var patch=new Patch(samples[t.A],samples[t.B],samples[t.C]);
+            int x0=Start(patch.Left,bounds.X,dx,subWidth), x1=End(patch.Right,bounds.X,dx,subWidth);
+            int y0=Start(patch.Top,bounds.Y,dy,subHeight), y1=End(patch.Bottom,bounds.Y,dy,subHeight);
+            for(int y=y0;y<y1;y++) for(int x=x0;x<x1;x++) {
+                int index=y*subWidth+x;
+                if(surface[index]!=0) continue;
+                var p=new Point(bounds.X+(x+.5)*dx,bounds.Y+(y+.5)*dy);
+                if(!patch.Contains(p,out var wa,out var wb,out var wc)) continue;
+                if(Evaluate(patch,p,wa,wb,wc) is not {} estimate) {
+                    surface[index]=1; // Transparent, claimed by this triangle.
+                    continue;
+                }
+                var color=palette(estimate.Value,(byte)(170*estimate.Confidence));
+                uint a=color.A;
+                surface[index]=a<<24 | color.R*a/255<<16 | color.G*a/255<<8 | color.B*a/255;
+                painted=true;
+            }
+        }
+        if(!painted) return null;
+        var pixels=new byte[width*height*4];
+        for(int y=0;y<height;y++) for(int x=0;x<width;x++) {
+            int from=2*y*subWidth+2*x, to=(y*width+x)*4;
+            uint a=surface[from], b=surface[from+1], c=surface[from+subWidth], d=surface[from+subWidth+1];
+            if(a==1) a=0;
+            if(b==1) b=0;
+            if(c==1) c=0;
+            if(d==1) d=0;
+            for(int channel=0;channel<4;channel++) {
+                int shift=channel*8;
+                pixels[to+channel]=(byte)((((a>>shift)&255)+((b>>shift)&255)+((c>>shift)&255)+((d>>shift)&255)+2)/4);
+            }
+        }
+        return pixels;
+
+        static int Start(double edge,double origin,double step,int limit) =>
+            (int)Math.Clamp(Math.Floor((edge-origin)/step),0,limit);
+        static int End(double edge,double origin,double step,int limit) =>
+            (int)Math.Clamp(Math.Ceiling((edge-origin)/step),0,limit);
     }
 }

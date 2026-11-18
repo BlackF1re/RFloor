@@ -14,7 +14,7 @@ public partial class MainWindow {
             double width=Math.Max(360,source.Width),height=source.Height+header+(surveyMode?70:0),factor=Math.Min(1,6000/Math.Max(width,height));
             var canvas=new Avalonia.Controls.Canvas {Width=width,Height=height,Background=Brushes.White};
             var title=new TextBlock {Text=document["name"]?.ToString()??"RFloor",FontSize=20};Canvas.SetLeft(title,12);Canvas.SetTop(title,8);canvas.Children.Add(title);
-            var subtitle=new TextBlock {Text=surveyMode?$"{(MetricPicker.SelectedItem as ComboBoxItem)?.Content} · {(BandPicker.SelectedItem as ComboBoxItem)?.Content}":L("План помещения"),Foreground=Brushes.Gray};Canvas.SetLeft(subtitle,12);Canvas.SetTop(subtitle,36);canvas.Children.Add(subtitle);
+            var subtitle=new TextBlock {Text=surveyMode?$"{LayerTitle(activeLayer)} · {(BandPicker.SelectedItem as ComboBoxItem)?.Content}":L("План помещения"),Foreground=Brushes.Gray};Canvas.SetLeft(subtitle,12);Canvas.SetTop(subtitle,36);canvas.Children.Add(subtitle);
             var map=new Avalonia.Controls.Border {Width=source.Width,Height=source.Height,Background=new VisualBrush(Plan) {SourceRect=new RelativeRect(source,RelativeUnit.Absolute),Stretch=Stretch.Fill}};Canvas.SetTop(map,header);canvas.Children.Add(map);
             if(surveyMode){var legend=new TextBlock {Text=HeatLegend.Text,MaxWidth=width-24,TextWrapping=TextWrapping.Wrap};Canvas.SetLeft(legend,12);Canvas.SetTop(legend,header+source.Height+8);canvas.Children.Add(legend);}
             canvas.Measure(new Size(width,height));canvas.Arrange(new Rect(0,0,width,height));

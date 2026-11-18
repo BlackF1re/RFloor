@@ -20,7 +20,6 @@ public partial class MainWindow
         RenderPlan();
     }
     private string Band => (BandPicker.SelectedItem as ComboBoxItem)?.Tag as string ?? "5";
-    private string Metric => (MetricPicker.SelectedItem as ComboBoxItem)?.Tag as string ?? "signal";
     private JsonArray Points => document["points"] as JsonArray ?? new JsonArray();
     private void LoadSurveySettings()
     {
@@ -297,24 +296,6 @@ public partial class MainWindow
             if(ReferenceEquals(document,currentDocument) && Points.Contains(item)) RenderPlan();
         }
     }
-    private (double Value,string Kind)? Sample(JsonObject p)
-    {
-        var m=MapReading(p)?["measurements"] as JsonObject; if(m is null) return null;
-        if(Metric=="signal") { if(Numeric(m["rssi"], out var rv)) return (rv,"rssi"); if(Numeric(m["quality"], out var qv)) return (qv,"quality"); }
-        if(Metric=="ping") { var ping=(m["pings"] as JsonArray)?.FirstOrDefault(x=>x?["avg"] is JsonValue); if(Numeric(ping?["avg"], out var pv)) return (pv,"ping"); }
-        if(Metric is "download" or "upload" && Numeric(m[Metric+"Mbps"], out var sv)) return (sv,Metric);
-        return null;
-    }
-    private static bool NoCoverage(double value,string kind) => (kind=="rssi" && value<=-120) || (kind=="quality" && value<=0);
-    private Color SampleColor(double value,string kind,byte alpha=255)
-    {
-        (double a,double b,double c)=kind switch { "rssi"=>(-90,-70,-45),"quality"=>(20,50,85),"ping"=>(150,65,20),"loss"=>(100,10,0),"download"=>(5,40,150),_=>(2,20,80) };
-        if (document["settings"]?["thresholds"]?[kind] is JsonArray thresholds && thresholds.Count == 3 && Numeric(thresholds[0], out double ta) && Numeric(thresholds[1], out double tb) && Numeric(thresholds[2], out double tc) && (kind is "ping" or "loss" ? ta > tb && tb > tc : ta < tb && tb < tc)) (a,b,c)=(ta,tb,tc);
-        if(kind is "ping" or "loss") { value=-value;a=-a;b=-b;c=-c; }
-        double score=value<=a?0:value>=c?1:value<=b?.5*(value-a)/(b-a):.5+.5*(value-b)/(c-b);
-        var low=score<.5?Color.FromRgb(255,40,30):Color.FromRgb(255,220,0); var high=score<.5?Color.FromRgb(255,220,0):Color.FromRgb(40,240,45); double t=score<.5?score*2:(score-.5)*2;
-        return Color.FromArgb(alpha,(byte)(low.R+(high.R-low.R)*t),(byte)(low.G+(high.G-low.G)*t),(byte)(low.B+(high.B-low.B)*t));
-    }
     private void RenderPoints()
     {
         int index=0;
@@ -345,60 +326,5 @@ public partial class MainWindow
         Canvas.SetLeft(marker, Screen(position.X)-size/2);
         Canvas.SetTop(marker, Screen(position.Y)-size/2);
         return marker;
-    }
-    private void RenderHeatmap()
-    {
-        if(ShowHeat.IsChecked!=true) { HeatLegend.Text=L("Тепловая карта скрыта"); return; }
-        var samples=Points.Select(n=>n!.AsObject()).Where(p=>Sample(p)!=null).ToList();
-        if(samples.Count==0 || Rooms.Count==0) { HeatLegend.Text=L("Нет данных для выбранного показателя и диапазона"); return; }
-        var covered=samples.FirstOrDefault(p=>Sample(p) is {Kind:"rssi"} s && !NoCoverage(s.Value,s.Kind))
-            ?? samples.FirstOrDefault(p=>{var sample=Sample(p)!.Value; return !NoCoverage(sample.Value,sample.Kind);});
-        string kind=Sample(covered??samples[0])!.Value.Kind;
-        samples=samples.Where(p=>{var sample=Sample(p)!.Value; return sample.Kind==kind || NoCoverage(sample.Value,sample.Kind);}).ToList();
-        var defaults=ThresholdDefaults.First(t=>t.Key==kind).Values;
-        var saved=document["settings"]?["thresholds"]?[kind] as JsonArray;
-        double threshold(int i) => saved is not null && saved.Count==3 && Numeric(saved[i],out var v) ? v : defaults[i];
-        string units=kind switch { "rssi"=>"dBm", "quality"=>"%", "ping"=>L("мс"), _=>L("Мбит/с") };
-        HeatLegend.Text=L("Красный: {0:0.#} · жёлтый: {1:0.#} · зелёный: {2:0.#} {3}\nТочек: {4}. Локальная оценка между замерами (минимум 3, не на одной прямой), радиус опоры {5:0.##} м. Прозрачный — нет покрытия или недостаточно данных.", threshold(0), threshold(1), threshold(2), units, samples.Count,CoverageRadius);
-        foreach(var node in Rooms)
-        {
-            var room=node!.AsObject(); double x=Number(room["x"]),y=Number(room["y"]),w=Number(room["w"]),h=Number(room["h"]); double step=Math.Max(.2,Math.Max(w,h)/100);
-            var localSamples=samples.Where(p=>InSurveyRoom(new Point(Number(p["x"]),Number(p["y"])),room)).ToList();
-            var model=BuildCoverage(localSamples,kind);
-            var drawing = new DrawingGroup(); using var context = drawing.Open();
-            context.DrawRectangle(Brushes.Transparent, null, new Rect(0,0,w*Scale,h*Scale));
-            for(double dy=0;dy<h;dy+=step) for(double dx=0;dx<w;dx+=step)
-            {
-                double cellWidth=Math.Min(step,w-dx),cellHeight=Math.Min(step,h-dy);
-                var estimate=model.Estimate(new Point(x+dx+cellWidth/2,y+dy+cellHeight/2));
-                if(estimate is not {} value)continue;
-                context.DrawRectangle(new SolidColorBrush(SampleColor(value.Value,kind,(byte)(170*value.Confidence))), null, new Rect(dx*Scale,dy*Scale,Math.Min(step,w-dx)*Scale,Math.Min(step,h-dy)*Scale));
-            }
-            context.Dispose();
-            var image = new Image { Source = new DrawingImage(drawing), Width = w*Scale, Height = h*Scale, Stretch = Stretch.Fill, IsHitTestVisible = false };
-            Canvas.SetLeft(image, Screen(x)); Canvas.SetTop(image, Screen(y)); Plan.Children.Add(image);
-        }
-    }
-    private CoverageInterpolator BuildCoverage(IReadOnlyList<JsonObject> samples,string kind)
-    {
-        var values=new List<CoverageInterpolator.Sample>();
-        foreach(var point in samples) {
-            if(Sample(point) is not {} sample)continue;
-            bool uncovered=NoCoverage(sample.Value,sample.Kind);
-            if(!uncovered && sample.Kind!=kind)continue;
-            values.Add(new(new Point(Number(point["x"]),Number(point["y"])),uncovered?null:sample.Value));
-        }
-        return new(values,(a,b)=>Walls.Any(w=>Crosses(a.X,a.Y,b.X,b.Y,w!.AsObject())),CoverageRadius);
-    }
-    private (double Value,double Confidence)? EstimateHeat(Point position,IReadOnlyList<JsonObject> samples,string kind)
-        => BuildCoverage(samples,kind).Estimate(position);
-
-    private static bool Crosses(double ax,double ay,double bx,double by,JsonObject wall)
-    {
-        double cx=Number(wall["a"]!["x"]),cy=Number(wall["a"]!["y"]),dx=Number(wall["b"]!["x"]),dy=Number(wall["b"]!["y"]);
-        double rx=bx-ax,ry=by-ay,sx=dx-cx,sy=dy-cy,den=rx*sy-ry*sx;
-        if(Math.Abs(den)<1e-9)return false;
-        double qx=cx-ax,qy=cy-ay,t=(qx*sy-qy*sx)/den,u=(qx*ry-qy*rx)/den;
-        return t>1e-5 && t<1-1e-5 && u>=-1e-5 && u<=1+1e-5;
     }
 }
