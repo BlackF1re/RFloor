@@ -83,15 +83,18 @@ public partial class MainWindow
         RepeatPointTool.IsChecked = next == SurveyTool.Repeat;
     }
     private void SurveyView_Changed(object sender, RoutedEventArgs e) { if (IsInitialized && !loadingSettings && !updating && Plan != null && Objects != null) RenderPlan(); }
-    private bool InsideSurveyRoom(Point point) => Rooms.OfType<JsonObject>().Any(r=>
-        point.X>=Number(r["x"])-WallFaceTolerance && point.X<=Number(r["x"])+Number(r["w"])+WallFaceTolerance &&
-        point.Y>=Number(r["y"])-WallFaceTolerance && point.Y<=Number(r["y"])+Number(r["h"])+WallFaceTolerance);
+    private static bool InSurveyRoom(Point point, JsonObject room) =>
+        point.X>=Number(room["x"])-WallFaceTolerance && point.X<=Number(room["x"])+Number(room["w"])+WallFaceTolerance &&
+        point.Y>=Number(room["y"])-WallFaceTolerance && point.Y<=Number(room["y"])+Number(room["h"])+WallFaceTolerance;
+
+    private bool CanPlaceSurveyPoint(Point point) =>
+        Rooms.OfType<JsonObject>().Any(room=>InSurveyRoom(point,room)) && !WallFaces().Any(wall=>InsideWall(point,wall));
 
     private void DrawPointPreview()
     {
         foreach(var control in Plan.Children.OfType<Control>().Where(c=>Equals(c.Tag,"point-preview")).ToArray())
             Plan.Children.Remove(control);
-        if(!surveyMode || surveyTool != SurveyTool.Add || measurementCancellation is not null || pointPreview is not Point p || !InsideSurveyRoom(p)) return;
+        if(!surveyMode || surveyTool != SurveyTool.Add || measurementCancellation is not null || pointPreview is not Point p || !CanPlaceSurveyPoint(p)) return;
         DrawMeasurementRays(p);
         Plan.Children.Add(CreatePointMarker(p, Brushes.DarkOrange, "point-preview", 6, .7));
     }
@@ -102,22 +105,26 @@ public partial class MainWindow
     }
     private Point SnapSurveyPosition(Point point)
     {
-        if (SnapEnabled.IsChecked != true || PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) return point;
-        double step = GridSize;
-        var gridPoint=GridPosition(point);
-        double range=Math.Min(step/2,6/(Scale*PlanZoom.ScaleX));
-        double closest=range*range;
-        var result=gridPoint;
+        bool snap = SnapActive;
+        var gridPoint=snap ? GridPosition(point) : point;
+        bool rawAllowed=CanPlaceSurveyPoint(point);
+        if (!snap && rawAllowed) return point;
+        var result=CanPlaceSurveyPoint(gridPoint) || !rawAllowed ? gridPoint : point;
+        double range=snap ? Math.Min(GridSize/2,6/(Scale*PlanZoom.ScaleX)) : 0;
+        double closest=double.PositiveInfinity;
         foreach (var wall in WallFaces())
-        foreach (var face in wall)
         {
-            var contact=OnEdge(point,face.A,face.B);
-            double distance=((Vector)(contact-point)).SquaredLength;
-            if (distance>closest || !InsideSurveyRoom(contact)) continue;
-            // Keep grid alignment along the wall while holding the perpendicular coordinate at its face.
-            var aligned=OnEdge(gridPoint,face.A,face.B);
-            result=InsideSurveyRoom(aligned) ? aligned : contact;
-            closest=distance;
+            bool onWall=wall.All(face=>face.Depth(point)>=-WallFaceTolerance);
+            foreach (var face in wall)
+            {
+                var contact=OnEdge(point,face.A,face.B);
+                double distance=((Vector)(contact-point)).SquaredLength;
+                if (distance>=closest || (!onWall && distance>range*range) || !CanPlaceSurveyPoint(contact)) continue;
+                // Round along the wall while holding the perpendicular coordinate at the face.
+                var aligned=OnEdge(gridPoint,face.A,face.B);
+                result=CanPlaceSurveyPoint(aligned) ? aligned : contact;
+                closest=distance;
+            }
         }
         return result;
     }
@@ -147,7 +154,7 @@ public partial class MainWindow
         }
         if (surveyTool != SurveyTool.Add) return;
         var point = SurveyPosition(local);
-        if (!InsideSurveyRoom(point)) { Status.Text=L("Разместите точку внутри комнаты."); return; }
+        if (!CanPlaceSurveyPoint(point)) { Status.Text=L("Разместите точку внутри комнаты или вплотную к стене."); return; }
         if (!TryMeasurementOptions(out var options)) return;
         Remember();
         EnsureSurveyDocument();
@@ -332,7 +339,8 @@ public partial class MainWindow
     {
         var marker = new Ellipse {
             Width=size, Height=size, Stroke=stroke, StrokeThickness=1.2,
-            IsHitTestVisible=false, UseLayoutRounding=false, Tag=tag, Opacity=opacity, ZIndex=2
+            IsHitTestVisible=false, UseLayoutRounding=false, Tag=tag, Opacity=opacity, ZIndex=2,
+            Clip=SurveyMarkerClip(position,size)
         };
         Canvas.SetLeft(marker, Screen(position.X)-size/2);
         Canvas.SetTop(marker, Screen(position.Y)-size/2);
@@ -355,7 +363,7 @@ public partial class MainWindow
         foreach(var node in Rooms)
         {
             var room=node!.AsObject(); double x=Number(room["x"]),y=Number(room["y"]),w=Number(room["w"]),h=Number(room["h"]); double step=Math.Max(.2,Math.Max(w,h)/100);
-            var localSamples=samples.Where(p=>Number(p["x"])>=x && Number(p["x"])<=x+w && Number(p["y"])>=y && Number(p["y"])<=y+h).ToList();
+            var localSamples=samples.Where(p=>InSurveyRoom(new Point(Number(p["x"]),Number(p["y"])),room)).ToList();
             var model=BuildCoverage(localSamples,kind);
             var drawing = new DrawingGroup(); using var context = drawing.Open();
             context.DrawRectangle(Brushes.Transparent, null, new Rect(0,0,w*Scale,h*Scale));

@@ -57,6 +57,18 @@ internal static class EditorLogic
         var plan=(Canvas)window.FindControl<Control>("Plan");var primitiveHost=plan.Children.OfType<Canvas>().First(v=>ReferenceEquals(v.Tag,primitive));
         var contact=(Point)Call("SnapSurveyPosition",new Point(3.98,1.51))!;
         Near(contact.X,4,"Survey point missed the clear wall face");
+        var snapCheckbox=window.FindControl<CheckBox>("SnapEnabled")!;
+        foreach (bool enabled in new[]{true,false})
+        {
+            snapCheckbox.IsChecked=enabled;
+            var insideWall=new Point(4+4/scale,1.51);
+            var snappedPoint=(Point)Call("SnapSurveyPosition",insideWall)!;
+            Near(snappedPoint.X,4,"Survey point did not reach the room face from the wall body");
+            Require(Call("CanPlaceSurveyPoint",snappedPoint) is true && Call("CanPlaceSurveyPoint",insideWall) is false,
+                "The wall face or its solid interior was classified incorrectly");
+            Near(snappedPoint.Y,enabled?1.5:1.51,"Wall contact unexpectedly changed the position along the wall");
+        }
+        snapCheckbox.IsChecked=true;
         Call("DrawMeasurementRays",contact);
         var rays=plan.Children.OfType<Avalonia.Controls.Shapes.Line>().Where(v=>Equals(v.Tag,"point-preview")).ToArray();
         Require(rays.Length==3 && plan.Children.OfType<TextBlock>().Any(v=>Equals(v.Tag,"point-preview") && v.Text=="0 м"),"Wall contact skipped zero and measured to the wall behind");

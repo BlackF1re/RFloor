@@ -114,15 +114,20 @@ internal static class PhoneChecks {
             Require(document["points"]!.AsArray().Count==1 && point["readings"]![0]!["band"]!.ToString()=="2.4" &&
                 point["readings"]![1]!["band"]!.ToString()=="5","Another band replaced the saved reading or duplicated the point.");
             Use(add);Require(add.IsChecked==true && repeat.IsChecked==false,"Survey tools were not mutually exclusive.");
-            Tap(At(181,192));
+            Tap(At(48,192));
             WaitUntil(()=>document["points"] is JsonArray {Count: >1} points && points[1]?["readings"] is JsonArray);
+            var wallPoint=document["points"]![1]!;
+            var wallMarker=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>().Single(e=>ReferenceEquals(e.Tag,wallPoint));
+            Require(wallPoint["x"]!.GetValue<double>()==0 && wallMarker.Clip is {} clip &&
+                clip.FillContains(new Point(4,3)) && !clip.FillContains(new Point(2,3)),
+                "Touch did not save a wall-facing survey point with a clipped marker.");
             Use(select);
             var list=view.FindControl<ListBox>("Objects")!;
             list.SelectedItems!.Clear();
-            Tap(At(147,160));Tap(At(181,192));
+            Tap(At(147,160));Tap(At(48,192));
             Require(list.SelectedItems.Count==2,"Survey tool did not add two points to the selection.");
             list.SelectedItems.Clear();
-            host.MouseDown(At(126,137),MouseButton.Left);
+            host.MouseDown(At(27,137),MouseButton.Left);
             host.MouseMove(At(213,219));
             host.MouseUp(At(213,219),MouseButton.Left);
             Layout();

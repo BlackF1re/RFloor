@@ -28,6 +28,30 @@ public partial class MainWindow {
         }).ToArray();
     }
 
+    private static bool InsideWall(Point point, WallFace[] wall) =>
+        wall.All(face=>face.Depth(point)>WallFaceTolerance);
+
+    private Geometry? SurveyMarkerClip(Point center, double size)
+    {
+        double radius = size / (2 * Scale);
+        var origin = center - new Vector(radius,radius);
+        Geometry? clip = null;
+        foreach (var wall in WallFaces())
+        {
+            if (wall.Any(face=>face.Depth(center)+radius*(Math.Abs(face.Inward.X)+Math.Abs(face.Inward.Y))<=WallFaceTolerance)) continue;
+            Point Local(Point point) => new((point.X-origin.X)*Scale,(point.Y-origin.Y)*Scale);
+            var polygon = new StreamGeometry();
+            using (var path = polygon.Open())
+            {
+                path.BeginFigure(Local(wall[0].A),true);
+                foreach (var face in wall) path.LineTo(Local(face.B));
+                path.EndFigure(true);
+            }
+            clip = GeometryOps.Combine(clip ?? new RectangleGeometry(new Rect(0,0,size,size)),polygon,GeometryCombineMode.Exclude,null);
+        }
+        return clip;
+    }
+
     private static double WallEntryDistance(WallFace[] wall, Point start, Vector direction)
     {
         double enter=0, exit=double.PositiveInfinity;

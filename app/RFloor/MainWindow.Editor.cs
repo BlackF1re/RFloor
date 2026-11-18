@@ -126,7 +126,7 @@ public partial class MainWindow
                 string? id=obj["id"]?.GetValue<string>(); var group=Walls.Concat(Doors).Select(n=>n!.AsObject()).Where(s=>id is not null && s["roomId"]?.GetValue<string>()==id).ToList();
                 foreach (var segment in group) EnsureSegmentFree(End(segment,"a")+delta,End(segment,"b")+delta,segment,group);
             }
-            else if (item.Kind == "point") { double x=Number(obj["x"])+delta.X,y=Number(obj["y"])+delta.Y; EnsurePointFree(x,y,obj); if (!Rooms.Any(r=>x>=Number(r!["x"]) && x<=Number(r["x"])+Number(r["w"]) && y>=Number(r["y"]) && y<=Number(r["y"])+Number(r["h"]))) return false; }
+            else if (item.Kind == "point") { double x=Number(obj["x"])+delta.X,y=Number(obj["y"])+delta.Y; EnsurePointFree(x,y,obj); if (!CanPlaceSurveyPoint(new Point(x,y))) return false; }
             else if (item.Kind == "door") { var bounds=OpeningBounds(obj); if (bounds is null) return false; Vector axis=End(obj,"b")-End(obj,"a"); axis=axis/axis.Length; if (Vectors.Dot(End(obj,"a")+delta-bounds.Value.Before,axis)<.08 || Vectors.Dot(bounds.Value.After-End(obj,"b")-delta,axis)<.08 || WallJunctions(End(obj,"a")+delta-axis*.08,End(obj,"b")+delta+axis*.08).Any()) return false; }
             return true;
         }

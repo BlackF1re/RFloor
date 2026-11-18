@@ -55,8 +55,8 @@ public partial class MainWindow
                 thickness = Parse(PropertyThickness, L("Толщина"), true);
                 if (thickness < .05 || thickness > 1 || Math.Sqrt((w-x)*(w-x)+(h-y)*(h-y)) < .15) throw new FormatException(L("Длина стены должна быть не меньше 0,15 м, толщина — от 0,05 до 1 м."));
             }
-            if (selected.Kind == "point" && !Rooms.Any(n => { var r = n!.AsObject(); return x >= Number(r["x"]) && x <= Number(r["x"]) + Number(r["w"]) && y >= Number(r["y"]) && y <= Number(r["y"]) + Number(r["h"]); }))
-                throw new FormatException(L("Точка замера должна находиться внутри комнаты."));
+            if (selected.Kind == "point" && !CanPlaceSurveyPoint(new Point(x,y)))
+                throw new FormatException(L("Разместите точку внутри комнаты или вплотную к стене."));
             if (selected.Kind == "room")
             {
                 double ox = Number(obj["x"]), oy = Number(obj["y"]), ow = Number(obj["w"]), oh = Number(obj["h"]);
