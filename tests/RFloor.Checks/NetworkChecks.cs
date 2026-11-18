@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json.Nodes;
 using RFloor;
 internal static class NetworkChecks {
@@ -45,11 +46,17 @@ internal static class NetworkChecks {
         if(windows["bssid"]?.ToString()!="aa:bb:cc:dd:ee:ff" || windows["frequencyMHz"]?.GetValue<int>()!=5180 || windows["rssi"]?.GetValue<int>()!=-44)
             throw new Exception("A disconnected adapter overwrote the active Windows Wi-Fi interface.");
         if(Environment.GetEnvironmentVariable("RFLOOR_NETWORK_CHECK_HOST") is {} host){
-            var result=await NetworkMeasurements.RunSurveyAsync(true,[host],2,host,5201,1,CancellationToken.None,true,true);
-            if(result["error"] is not null || result["measurementState"] is not null || result["rssi"]?.GetValue<double>() is not <0 ||
+            // Hosted runners test real transport over loopback and have no Wi-Fi adapter.
+            bool loopback=IPAddress.TryParse(host,out var address) && IPAddress.IsLoopback(address);
+            var result=loopback
+                ? await NetworkMeasurements.RunConfiguredAsync(false,[host],2,host,5201,1,CancellationToken.None,true,true)
+                : await NetworkMeasurements.RunSurveyAsync(true,[host],2,host,5201,1,CancellationToken.None,true,true);
+            if(result["error"] is not null || result["measurementState"] is not null ||
+                (!loopback && result["rssi"]?.GetValue<double>() is not <0) ||
                 result["downloadMbps"]?.GetValue<double>() is not >0 || result["uploadMbps"]?.GetValue<double>() is not >0 ||
                 result["pings"]![0]!["received"]!.GetValue<int>()!=2)throw new Exception("Live network check failed: "+result);
-            Console.WriteLine(FormattableString.Invariant($"Live survey passed: {result["frequencyMHz"]} MHz, {result["rssi"]} dBm, ICMP, iperf3 {result["downloadMbps"]} Mbps down / {result["uploadMbps"]} Mbps up."));
+            var radio=loopback?"":FormattableString.Invariant($"{result["frequencyMHz"]} MHz, {result["rssi"]} dBm, ");
+            Console.WriteLine(FormattableString.Invariant($"Live network passed: {radio}ICMP, iperf3 {result["downloadMbps"]} Mbps down / {result["uploadMbps"]} Mbps up."));
         }
     }
 }
