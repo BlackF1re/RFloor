@@ -10,7 +10,7 @@ public partial class MainWindow {
         if(outlineButton is not null)outlineButton.IsVisible=!surveyMode;
         ModeThumb.Width=(ModeSwitch.Width-8)/2;
         ((TranslateTransform)ModeThumb.RenderTransform!).Transitions??=new Transitions {new DoubleTransition {Property=TranslateTransform.XProperty,Duration=TimeSpan.FromMilliseconds(150)}};
-        ((TranslateTransform)ModeThumb.RenderTransform!).X=surveyMode?ModeThumb.Width:0;
+        ((TranslateTransform)ModeThumb.RenderTransform!).X=surveyMode?0:ModeThumb.Width;
         ModePlanText.Foreground=surveyMode?Brushes.DimGray:Brushes.White;ModeSurveyText.Foreground=surveyMode?Brushes.White:Brushes.DimGray;
         ModeSwitch.Background=new SolidColorBrush(Color.FromRgb(242,242,242));
     }
@@ -46,7 +46,11 @@ public partial class MainWindow {
             drawerShade.Margin=new Thickness(0,0,0,74);
             root.Children.Add(drawerShade);
             foreach(var panel in new[]{LeftSidebar,RightSidebar}){panel.ZIndex=300;panel.Margin=new Thickness(8,60,8,78);panel.CornerRadius=new CornerRadius(10);panel.VerticalAlignment=VerticalAlignment.Stretch;panel.HorizontalAlignment=panel==LeftSidebar?HorizontalAlignment.Left:HorizontalAlignment.Right;panel.Width=DrawerWidth(panel==LeftSidebar);panel.IsVisible=false;panel.IsEnabled=false;panel.RenderTransform=null;root.Children.Add(panel);}
-            Objects.SelectionMode=SelectionMode.Multiple|SelectionMode.Toggle;ModeSwitch.Width=116;StatusBar.IsVisible=true;CanvasDock.Height=44;ZoomLabel.IsVisible=false;LeftPanelButton.MinHeight=40;RightPanelButton.MinHeight=40;GridPicker.MinHeight=40;GridPicker.Height=40;
+            foreach(var button in new[]{LeftPanelButton,RightPanelButton}) {
+                CanvasPanelTabs.Children.Remove(button);root.Children.Add(button);
+                button.ZIndex=302;
+            }
+            Objects.SelectionMode=SelectionMode.Multiple|SelectionMode.Toggle;ModeSwitch.Width=116;StatusBar.IsVisible=true;CanvasDock.Height=44;ZoomLabel.IsVisible=false;GridPicker.MinHeight=40;GridPicker.Height=40;
             if(StatusBar.Child is DockPanel statusDock)statusDock.Children[0].IsVisible=false;
             Status.FontSize=11;Status.TextTrimming=TextTrimming.CharacterEllipsis;
             foreach(var button in CanvasDock.GetLogicalDescendants().OfType<Avalonia.Controls.Button>()){
@@ -61,7 +65,11 @@ public partial class MainWindow {
         }else{
             drawerShade.IsVisible=false;root.Children.Remove(drawerShade);
             foreach(var panel in new[]{LeftSidebar,RightSidebar}){root.Children.Remove(panel);panel.Margin=new Thickness(0);panel.CornerRadius=new CornerRadius(0);panel.RenderTransform=null;panel.HorizontalAlignment=HorizontalAlignment.Stretch;sidebarParent!.Children.Add(panel);}
-            Objects.SelectionMode=SelectionMode.Multiple;ApplyPanelWidths();LeftPanelButton.MinHeight=0;RightPanelButton.MinHeight=0;ModeSwitch.Width=144;StatusBar.IsVisible=true;CanvasDock.Height=28;ZoomLabel.IsVisible=true;GridPicker.MinHeight=0;GridPicker.Height=28;
+            foreach(var button in new[]{LeftPanelButton,RightPanelButton}) {
+                root.Children.Remove(button);CanvasPanelTabs.Children.Add(button);
+                button.ZIndex=0;
+            }
+            Objects.SelectionMode=SelectionMode.Multiple;ApplyPanelWidths();ModeSwitch.Width=144;StatusBar.IsVisible=true;CanvasDock.Height=28;ZoomLabel.IsVisible=true;GridPicker.MinHeight=0;GridPicker.Height=28;
             if(StatusBar.Child is DockPanel statusDock)statusDock.Children[0].IsVisible=true;
             Status.ClearValue(TextBlock.FontSizeProperty);Status.ClearValue(TextBlock.TextTrimmingProperty);
             if(outlineButton is not null)((StackPanel)CanvasDock.Children[0]).Children.Remove(outlineButton);

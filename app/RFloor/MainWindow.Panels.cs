@@ -1,4 +1,5 @@
 namespace RFloor;
+using Avalonia.Automation;
 
 public partial class MainWindow
 {
@@ -10,7 +11,7 @@ public partial class MainWindow
     private void ToggleLeftPanel_Click(object sender,RoutedEventArgs e)=>TogglePanel(LeftSidebar);
     private void ToggleRightPanel_Click(object sender,RoutedEventArgs e)=>TogglePanel(RightSidebar);
 
-    private double DrawerWidth(bool left)=>Math.Min(left?leftDrawerWidth:rightDrawerWidth,Math.Max(0,Bounds.Width-32));
+    private double DrawerWidth(bool left)=>Math.Min(left?leftDrawerWidth:rightDrawerWidth,Math.Max(0,Bounds.Width-40));
     private double DesktopPanelWidth(bool left) => Math.Clamp(left?leftPanelWidth:rightPanelWidth,190,Math.Max(190,(Bounds.Width-360)/2));
 
     private void ApplyPanelWidths()
@@ -25,6 +26,7 @@ public partial class MainWindow
                 panel.IsVisible=panel.IsEnabled=open;
             }
         }
+        RefreshPanelButtons();
     }
 
     private void TogglePanel(Border panel)
@@ -77,10 +79,16 @@ public partial class MainWindow
     {
         foreach(var (button,panel,left) in new[]{(LeftPanelButton,LeftSidebar,true),(RightPanelButton,RightSidebar,false)}) {
             bool open=compactLayout?panel.IsEnabled:left?leftPanelOpen:rightPanelOpen;
-            button.Content=left?"◧":"◨";
-            button.Background=open?Brushes.PeachPuff:Brushes.WhiteSmoke;
+            var arrow=(Avalonia.Controls.Shapes.Path)button.Content!;
+            bool pointsLeft=left==open;
+            arrow.Data=Avalonia.Media.Geometry.Parse(pointsLeft?"M 8,2 L 3,7 8,12":"M 3,2 L 8,7 3,12");
+            button.IsVisible=activeSession is not null;
+            button.Width=compactLayout?32:24;
+            double inset=compactLayout && open?panel.Width+7:0;
+            button.Margin=new Thickness(left?inset:0,compactLayout?102:30,left?0:inset,0);
             button.Tip=left?(open?L("Скрыть левую панель"):L("Показать левую панель")):
                 (open?L("Скрыть правую панель"):L("Показать правую панель"));
+            AutomationProperties.SetName(button,(string)button.Tip);
         }
     }
 
@@ -108,13 +116,15 @@ public partial class MainWindow
             if(e.Pointer!=pointer)return;
             double next=width+(e.GetPosition(this).X-startX)*(left?1:-1);
             if(compactLayout) {
-                next=Math.Clamp(next,Math.Min(190,Bounds.Width-32),Bounds.Width-32);
+                next=Math.Clamp(next,Math.Min(190,Bounds.Width-40),Bounds.Width-40);
                 if(left)leftDrawerWidth=next;else rightDrawerWidth=next;
             } else {
                 next=Math.Clamp(next,190,Math.Max(190,(Bounds.Width-360)/2));
                 if(left)leftPanelWidth=next;else rightPanelWidth=next;
             }
-            panel.Width=next;e.Handled=true;
+            panel.Width=next;
+            if (compactLayout) RefreshPanelButtons();
+            e.Handled=true;
         };
         handle.PointerReleased+=(_,e)=>{if(e.Pointer==pointer){pointer=null;e.Pointer.Capture(null);e.Handled=true;}};
         handle.PointerCaptureLost+=(_,_)=>pointer=null;

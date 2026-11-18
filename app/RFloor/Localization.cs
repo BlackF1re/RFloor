@@ -7,24 +7,37 @@ namespace RFloor;
 
 internal static class Localization
 {
-    private static readonly Dictionary<string,string> English=Read("English.json");
-    private static readonly Dictionary<string,string> Xaml=Read("Xaml.json");
-    internal static string Language {get;private set;}="ru";
-    private static Dictionary<string,string> Read(string name)
+    internal sealed record LanguagePack(string Code,string Culture,string Name,Dictionary<string,string> Strings)
     {
-        using var stream=typeof(Localization).Assembly.GetManifestResourceStream("RFloor.Localization."+name)
-            ?? throw new InvalidOperationException("Missing language resource: "+name);
-        return JsonSerializer.Deserialize<Dictionary<string,string>>(stream)!;
+        public override string ToString()=>Name;
     }
+
+    private const string ResourcePrefix="RFloor.Localization.";
+    internal static IReadOnlyList<LanguagePack> AvailableLanguages {get;}=typeof(Localization).Assembly
+        .GetManifestResourceNames().Where(resource=>resource.StartsWith(ResourcePrefix+"Languages.",StringComparison.Ordinal) &&
+            resource.EndsWith(".json",StringComparison.Ordinal))
+        .Select(Read<LanguagePack>).OrderBy(pack=>pack.Name,StringComparer.Ordinal).ToArray();
+    private static readonly LanguagePack DefaultLanguage=AvailableLanguages.Single(pack=>pack.Code=="ru");
+    private static readonly Dictionary<string,string> Xaml=Read<Dictionary<string,string>>(ResourcePrefix+"Xaml.json");
+    private static LanguagePack active=DefaultLanguage;
+    internal static string Language=>active.Code;
+
+    private static T Read<T>(string resource) where T:class
+    {
+        using var stream=typeof(Localization).Assembly.GetManifestResourceStream(resource)
+            ?? throw new InvalidOperationException("Missing language resource: "+resource);
+        return JsonSerializer.Deserialize<T>(stream) ?? throw new InvalidOperationException("Empty language resource: "+resource);
+    }
+
     internal static string L(string source,params object?[] arguments)
     {
-        string format=Language=="en"&&English.TryGetValue(source,out var english)?english:source;
+        string format=active.Strings.GetValueOrDefault(source)??DefaultLanguage.Strings.GetValueOrDefault(source)??source;
         return arguments.Length==0?format:string.Format(CultureInfo.CurrentCulture,format,arguments);
     }
     internal static void SetLanguage(string language)
     {
-        Language=language=="en"?"en":"ru";
-        var culture=CultureInfo.GetCultureInfo(Language=="en"?"en-US":"ru-RU");
+        active=AvailableLanguages.FirstOrDefault(pack=>string.Equals(pack.Code,language,StringComparison.OrdinalIgnoreCase))??DefaultLanguage;
+        var culture=CultureInfo.GetCultureInfo(active.Culture);
         CultureInfo.CurrentCulture=culture;CultureInfo.CurrentUICulture=culture;
         CultureInfo.DefaultThreadCurrentCulture=culture;CultureInfo.DefaultThreadCurrentUICulture=culture;
         if(Application.Current is {} app)foreach(var (key,value) in Xaml)app.Resources[key]=L(value);

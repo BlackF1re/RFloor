@@ -20,7 +20,7 @@ internal static class EditorLogic
         object? Get(string name)=>type.GetField(name,flags)!.GetValue(window);
         JsonObject Doc()=>(JsonObject)Get("document")!;
         Call("AddDocument",Doc(),null);
-        if(Get("surveyMode") is not true)throw new Exception("New documents must start in survey mode.");
+        if(Get("surveyMode") is not false)throw new Exception("New documents must start in plan mode.");
         Call("SwitchMode",false);
         TextBox Field(string name)=>(TextBox)window.FindControl<Control>(name);
         void Require(bool condition,string message){if(!condition)throw new Exception(message);}
@@ -55,6 +55,19 @@ internal static class EditorLogic
         Near(Snap(new Point(1.5,.95)).Y,1,"Tape did not snap to primitive surface");
         Call("RenderPlan");
         var plan=(Canvas)window.FindControl<Control>("Plan");var primitiveHost=plan.Children.OfType<Canvas>().First(v=>ReferenceEquals(v.Tag,primitive));
+        var contact=(Point)Call("SnapSurveyPosition",new Point(3.98,1.51))!;
+        Near(contact.X,4,"Survey point missed the clear wall face");
+        Call("DrawMeasurementRays",contact);
+        var rays=plan.Children.OfType<Avalonia.Controls.Shapes.Line>().Where(v=>Equals(v.Tag,"point-preview")).ToArray();
+        Require(rays.Length==3 && plan.Children.OfType<TextBlock>().Any(v=>Equals(v.Tag,"point-preview") && v.Text=="0 м"),"Wall contact skipped zero and measured to the wall behind");
+        Near(rays.Single(ray=>ray.StartPoint.Y==ray.EndPoint.Y).EndPoint.X,50,"Ray did not end on the opposite interior wall face");
+        var search=window.FindControl<TextBox>("ObjectSearch")!;
+        search.Text="КОМНАТА";
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Require(plan.Children.OfType<Control>().Count(v=>Equals(v.Tag,"search-highlight"))==1,"Search did not match the room by name.");
+        window.FindControl<Avalonia.Controls.Button>("ClearObjectSearch")!.RaiseEvent(new RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Require(!plan.Children.OfType<Control>().Any(v=>Equals(v.Tag,"search-highlight")),"Clearing search left highlights.");
         Require(((Avalonia.Controls.Shapes.Shape)primitiveHost.Children[0]).Fill is null,"Outline primitive is filled");
         var aligned=((Point A,Point B))Call("AlignConstructionLine",new Point(1,1.2),new Point(1,1.8),3d)!;
         Near(aligned.A.X,1-1.5/scale,"Wall construction overlaps a primitive surface");
@@ -88,6 +101,12 @@ internal static class EditorLogic
         Call("BeginInlineRename",routerEntry);((TextBox)Get("inlineNameEditor")!).Text="Router office";Call("CommitInlineRename");
         Require(router["name"]?.ToString()=="Router office","Router name cannot be edited");
         geometry["decorations"]!.AsArray().Remove(router);
+        Call("AddRouter",new Point(4,1.5));
+        var wallRouter=geometry["decorations"]!.AsArray().Last()!;
+        var wallImage=(Image)plan.Children.OfType<Canvas>().Single(v=>ReferenceEquals(v.Tag,wallRouter)).Children[0];
+        Require(wallImage.Clip is Geometry clip && clip.FillContains(new Point(wallImage.Width/2-1,wallImage.Height/2)) &&
+            !clip.FillContains(new Point(wallImage.Width/2+1,wallImage.Height/2)),"Router clip crossed the interior wall face.");
+        geometry["decorations"]!.AsArray().Remove(wallRouter);
         Call("ZoomAt",100d,new Point(100,100),null);Near(((Avalonia.Media.ScaleTransform)((LayoutTransformControl)window.FindControl<Control>("ZoomHost")!).LayoutTransform).ScaleX,5,"Zoom cannot reach 500%");
         Call("ZoomAt",.2d,new Point(100,100),null);
         Call("SetTool","room");Call("DrawConstruction",new Point(0,0),new Point(2,3));

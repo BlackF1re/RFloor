@@ -44,6 +44,8 @@ public partial class MainWindow
         Welcome.IsVisible=true;
         Workspace.IsEnabled=false; Workspace.Opacity=0;
         dirty=false; path=null; document=NewDocument(); undo.Clear(); redo.Clear();
+        CloseDrawers();
+        RefreshPanelButtons();
         Title="RFloor";
     }
 

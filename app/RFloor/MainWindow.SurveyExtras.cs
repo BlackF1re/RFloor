@@ -52,22 +52,27 @@ public partial class MainWindow
     private void Thresholds_Click(object sender,RoutedEventArgs e)=>ShowPreferences(2);
     private void DrawMeasurementRays(Point p)
     {
+        var walls=WallFaces();
         foreach (var d in new[] { new Vector(1,0), new Vector(0,1), new Vector(-1,0), new Vector(0,-1) })
         {
             double nearest = double.PositiveInfinity;
-            foreach (var node in Walls)
-            {
-                var wall = node!.AsObject(); var a = new Point(Number(wall["a"]!["x"]),Number(wall["a"]!["y"])); var b = new Point(Number(wall["b"]!["x"]),Number(wall["b"]!["y"])); Vector s=b-a, q=a-p;
-                double den=d.X*s.Y-d.Y*s.X; if (Math.Abs(den)<1e-9) continue;
-                double t=(q.X*s.Y-q.Y*s.X)/den, u=(q.X*d.Y-q.Y*d.X)/den;
-                if(t<1e-6 || u<0 || u>1) continue;
-                double thickness = 0;
-                double angle = Math.Abs(den)/Math.Max(1e-9,s.Length);
-                nearest=Math.Min(nearest,Math.Max(0,t-thickness/(2*Math.Max(.1,angle))));
-            }
+            foreach (var wall in walls) nearest=Math.Min(nearest,WallEntryDistance(wall,p,d));
             if (!double.IsFinite(nearest)) continue;
-            var end=p+d*nearest; var line=new Line { X1=Screen(p.X),Y1=Screen(p.Y),X2=Screen(end.X),Y2=Screen(end.Y),Stroke=Brushes.DarkOrange,StrokeThickness=1.5,StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> { 3,2 },IsHitTestVisible=false,Tag="point-preview" }; Plan.Children.Add(line);
-            var label=new TextBlock { Text=L("{0:0.##} м", nearest),Background=Brushes.White,Foreground=Brushes.DarkOrange,IsHitTestVisible=false,Tag="point-preview" }; Canvas.SetLeft(label,Screen((p.X+end.X)/2)); Canvas.SetTop(label,Screen((p.Y+end.Y)/2)); Plan.Children.Add(label);
+            var end=p+d*nearest;
+            if (nearest>WallFaceTolerance)
+            {
+                Plan.Children.Add(new Line { X1=Screen(p.X),Y1=Screen(p.Y),X2=Screen(end.X),Y2=Screen(end.Y),
+                    Stroke=Brushes.DarkOrange,StrokeThickness=1.5,StrokeLineCap=PenLineCap.Flat,
+                    StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> { 3,2 },IsHitTestVisible=false,Tag="point-preview" });
+            }
+            var label=new TextBlock { Text=L("{0:0.##} м", nearest),Background=Brushes.White,Foreground=Brushes.DarkOrange,
+                IsHitTestVisible=false,Tag="point-preview",ZIndex=2 };
+            label.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));
+            var middle=p+d*(nearest/2);
+            double x=Screen(middle.X),y=Screen(middle.Y);
+            if (d.X!=0) { x+=d.X*Math.Max(0,10-nearest*Scale/2)-label.DesiredSize.Width/2; y-=label.DesiredSize.Height+3; }
+            else { x+=4; y+=d.Y*Math.Max(0,10-nearest*Scale/2)-label.DesiredSize.Height/2; }
+            Canvas.SetLeft(label,x); Canvas.SetTop(label,y); Plan.Children.Add(label);
         }
     }
 }

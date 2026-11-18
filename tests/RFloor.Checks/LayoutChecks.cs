@@ -22,11 +22,19 @@ internal static class LayoutChecks {
         void Layout(){Dispatcher.UIThread.RunJobs();host.UpdateLayout();}
         Call("AddDocument",Get("document"),null);host.Show();Layout();
         var mode=view.FindControl<Avalonia.Controls.Primitives.ToggleButton>("ModeSwitch")!;
+        var surveyLabel=view.FindControl<TextBlock>("ModeSurveyText")!;
+        var planLabel=view.FindControl<TextBlock>("ModePlanText")!;
+        Require(Grid.GetColumn(surveyLabel)<Grid.GetColumn(planLabel),"Survey mode is not on the left.");
+        Require(Get("surveyMode") is false,"New plan selected the wrong mode.");
         var modePoint=mode.TranslatePoint(new Point(mode.Bounds.Width/2,mode.Bounds.Height/2),host)!.Value;
         host.MouseDown(modePoint,MouseButton.Left);host.MouseUp(modePoint,MouseButton.Left);Layout();
-        Require(Get("surveyMode") is false,"Mode switch did not enter plan mode.");
+        Require(Get("surveyMode") is true,"Mode switch did not enter survey mode.");
         host.MouseDown(modePoint,MouseButton.Left);host.MouseUp(modePoint,MouseButton.Left);Layout();
-        Require(Get("surveyMode") is true,"Mode switch did not return to survey mode.");
+        Require(Get("surveyMode") is false,"Mode switch did not return to plan mode.");
+        var search=view.FindControl<TextBox>("ObjectSearch")!;
+        var clear=view.FindControl<Button>("ClearObjectSearch")!;
+        Require(search.Bounds.Height==clear.Bounds.Height && clear.Bounds.Width==clear.Bounds.Height,
+            "Search clear button is not square and aligned to the field.");
         var viewport=view.FindControl<ScrollViewer>("Viewport")!;
         var zoom=(ScaleTransform)view.FindControl<LayoutTransformControl>("ZoomHost")!.LayoutTransform!;
         var cursor=viewport.TranslatePoint(new Point(200,200),host)!.Value;

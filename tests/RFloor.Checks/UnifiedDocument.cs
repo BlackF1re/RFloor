@@ -33,6 +33,12 @@ internal static class UnifiedDocument {
         Require(readings.Count==2 && readings[0]!["measurements"]!["downloadMbps"]!.GetValue<int>()==850 &&
             readings[1]!["measurements"]!["rssi"]!.GetValue<int>()==-62,"Multi-band roundtrip lost new or legacy results.");
         Require(Get("dirty") is false,"Save did not clear dirty state.");
+        Call("AddDocument",restored,"imported.rfplan");
+        Require(Get("surveyMode") is true,"An imported survey did not open in measurement mode.");
+        var blank=(JsonObject)restored.DeepClone();
+        blank["points"]!.AsArray().Clear();
+        Call("AddDocument",blank,"blank.rfplan");
+        Require(Get("surveyMode") is false,"An imported plan without readings did not open in plan mode.");
         host.Width=1;view.Measure(new Size(1,800));view.Arrange(new Rect(0,0,1,800));Call("UpdateResponsiveLayout");
         foreach(double width in new[]{360d,412d,1440d}){
             host.Width=width;host.Height=800;view.Measure(new Size(width,800));view.Arrange(new Rect(0,0,width,800));Call("UpdateResponsiveLayout");

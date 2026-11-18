@@ -7,6 +7,30 @@ public partial class MainWindow
     private double labelOpacity = .85;
     private TextBox? inlineNameEditor;
     private ObjectEntry? inlineNameTarget;
+    private const string SearchHighlightTag="search-highlight";
+
+    private void ObjectSearch_Changed(object? sender, TextChangedEventArgs e)
+    {
+        if (IsInitialized && !switchingSession) RefreshObjectSearch();
+    }
+
+    private void ClearObjectSearch_Click(object sender, RoutedEventArgs e)
+    {
+        ObjectSearch.Clear();
+        ObjectSearch.Focus();
+    }
+
+    private void RefreshObjectSearch()
+    {
+        foreach (var element in Plan.Children.OfType<Control>().Where(c=>Equals(c.Tag,SearchHighlightTag)).ToArray())
+            Plan.Children.Remove(element);
+        string query=ObjectSearch.Text?.Trim()??"";
+        ClearObjectSearch.IsEnabled=!string.IsNullOrEmpty(ObjectSearch.Text);
+        if (query.Length==0) return;
+        foreach (var entry in Objects.Items.OfType<ObjectEntry>())
+            if (ObjectName(entry.Item,entry.Label).Contains(query,StringComparison.CurrentCultureIgnoreCase))
+                DrawObjectShape(entry,default,.72,Brushes.DarkOrange,SearchHighlightTag);
+    }
 
     private void ResetPointerTools(bool keepSurveyTool = false)
     {
@@ -45,7 +69,7 @@ public partial class MainWindow
         if(entry.Kind=="decoration"){DrawDecoration(obj,delta,tint,opacity,tag);return;}
         if(entry.Kind=="point") {
             var position=new Point(Number(obj["x"])+delta.X,Number(obj["y"])+delta.Y);
-            Plan.Children.Add(CreatePointMarker(position, tint, tag, tag==HighlightTag?11:6, opacity));
+            Plan.Children.Add(CreatePointMarker(position, tint, tag, tag is HighlightTag or SearchHighlightTag?11:6, opacity));
             return;
         }
         var walls=Walls.Select(n=>n!.AsObject()).ToList();

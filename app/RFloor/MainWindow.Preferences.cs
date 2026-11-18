@@ -78,6 +78,12 @@ public partial class MainWindow
         Key key=e.Key==Key.None?e.Key:e.Key;
         string chord=Chord(key,PointerContext.Modifiers);
         string? action=shortcuts.FirstOrDefault(x=>x.Value==chord).Key;
+        if (overlays.Count>0)
+        {
+            if (e.Key==Key.Escape) overlays.Keys.Last().Cancel();
+            e.Handled=action is not null || e.Key==Key.Escape;
+            return;
+        }
         if(action is null)return;
         if(activeSession is null && action is not ("new" or "open")) { e.Handled=true; return; }
         bool editing=TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is TextBox;

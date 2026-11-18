@@ -52,7 +52,8 @@ public partial class MainWindow
         IBrush? fill=accent??new SolidColorBrush(Color.FromRgb(212,212,212));
         if(obj["filled"]?.GetValue<bool>()==false)fill=null;
         FrameworkElement visual=obj["kind"]?.ToString() switch {
-            "router"=>new Image {Source=RouterImage(accent),Width=w,Height=h},
+            "router"=>new Image {Source=RouterImage(accent),Width=w,Height=h,
+                Clip=RouterClip(new Rect(bounds.Position+delta,bounds.Size))},
             "ellipse"=>new Ellipse {Width=w,Height=h,Stroke=stroke,StrokeThickness=1.5,Fill=fill},
             "line"=>new Line {X1=0,Y1=obj["reverse"]?.GetValue<bool>()==true?h:0,X2=w,Y2=obj["reverse"]?.GetValue<bool>()==true?0:h,Stroke=stroke,StrokeThickness=2},
             "text"=>new Border {CornerRadius=new CornerRadius(6),Background=accent is null?Brushes.White:fill,Padding=new Thickness(5,3,5,3),Child=new TextBlock {Text=ObjectName(obj,L("Подпись")),Foreground=accent??Brushes.Black}},

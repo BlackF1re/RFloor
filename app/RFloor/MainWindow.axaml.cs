@@ -144,6 +144,7 @@ public partial class MainWindow : SurfaceWindow
     private void RenderPlan()
     {
         CommitInlineRename();
+        wallFaces=null;
         foreach (var (items, prefix) in new[] { (Rooms, L("Комната")), (Walls, L("Стена")), (Doors, L("Проём")), (Points, L("Точка")) })
             for (int i=0; i<items.Count; i++)
                 if (string.IsNullOrWhiteSpace(items[i]?["name"]?.GetValue<string>())) items[i]!["name"] = $"{prefix} {i+1}";
@@ -196,6 +197,7 @@ public partial class MainWindow : SurfaceWindow
         Objects.SelectedItem = Objects.Items.Cast<ObjectEntry>().FirstOrDefault(entry => ReferenceEquals(entry.Item, previousSelection));
         foreach(var entry in Objects.Items.Cast<ObjectEntry>().Where(e=>selectedIds.Contains(e.Item))) if (!Objects.SelectedItems.Contains(entry)) Objects.SelectedItems.Add(entry);
         Objects_SelectionChanged(Objects, null!);
+        RefreshObjectSearch();
         DrawPointPreview();
         RefreshTabHeaders();
         RefreshRulers();

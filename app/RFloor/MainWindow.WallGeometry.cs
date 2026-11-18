@@ -3,6 +3,46 @@ namespace RFloor;
 public partial class MainWindow {
     private const double SelectionOpacity=.45;
     private const double WallStroke=5, OpeningStroke=1;
+    private const double WallFaceTolerance=1e-8;
+    private WallFace[][]? wallFaces;
+    private readonly record struct WallFace(Point A, Point B, Vector Inward)
+    {
+        public double Depth(Point point) => Vectors.Dot(point-A, Inward);
+    }
+
+    private WallFace[][] WallFaces()
+    {
+        if (wallFaces is not null) return wallFaces;
+        var walls = Walls.OfType<JsonObject>().Where(w => Length(w)>WallFaceTolerance).ToArray();
+        return wallFaces = walls.Select(wall =>
+        {
+            var edges = GeometryEdges(WallGeometry(wall,walls)).ToArray();
+            var center = new Point(edges.Average(edge=>edge.A.X),edges.Average(edge=>edge.A.Y));
+            return edges.Select(edge =>
+            {
+                Vector axis = edge.B-edge.A;
+                var normal = new Vector(-axis.Y,axis.X)/axis.Length;
+                return new WallFace(edge.A,edge.B,Vectors.Dot(center-edge.A,normal)>0?normal:-normal);
+            }).ToArray();
+        }).ToArray();
+    }
+
+    private static double WallEntryDistance(WallFace[] wall, Point start, Vector direction)
+    {
+        double enter=0, exit=double.PositiveInfinity;
+        foreach (var face in wall)
+        {
+            double depth=face.Depth(start), speed=Vectors.Dot(direction,face.Inward);
+            if (Math.Abs(speed)<WallFaceTolerance)
+            {
+                // Moving along a face does not enter the wall.
+                if (depth<=WallFaceTolerance) return double.PositiveInfinity;
+            }
+            else if (speed>0) enter=Math.Max(enter,-depth/speed);
+            else exit=Math.Min(exit,-depth/speed);
+        }
+        return exit-enter>WallFaceTolerance ? enter : double.PositiveInfinity;
+    }
     private static double WallHalfWidth(JsonObject wall)=>0;
     // Room coordinates describe the clear interior. The visible stroke grows outwards.
     private Vector RoomOutward(JsonObject segment) {

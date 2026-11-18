@@ -124,6 +124,17 @@ internal static class PhoneChecks {
             Layout();
             Require(list.SelectedItems.Count==2,"A mouse marquee did not select both survey points.");
             Use(delete);Tap(At(147,160));
+            var confirmation=view.GetVisualDescendants().Single(v=>v.GetType().Name=="OverlayDialog");
+            foreach (var pointToDelete in document["points"]!.AsArray())
+                Require(confirmation.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text!.StartsWith(pointToDelete!["name"]!.ToString()+" · ")),
+                    "Deletion did not identify all selected points.");
+            confirmation.GetVisualDescendants().OfType<Button>().Single(b=>b.IsCancel).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout();
+            Require(document["points"]!.AsArray().Count==2,"Cancel deleted measurements.");
+            Tap(At(147,160));
+            confirmation=view.GetVisualDescendants().Single(v=>v.GetType().Name=="OverlayDialog");
+            confirmation.GetVisualDescendants().OfType<Button>().Single(b=>!b.IsCancel).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Layout();
             Require(document["points"]!.AsArray().Count==0 && delete.IsChecked==true,"The delete tool did not remove the selected group.");
         } finally {PlatformServices.WifiReader=wifi;}
         Call("CreateNamedPlan");Layout();

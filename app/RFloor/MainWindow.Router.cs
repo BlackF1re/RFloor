@@ -31,15 +31,58 @@ public partial class MainWindow
     private JsonObject RouterAt(Point center)=>new() {["id"]=Id(),["kind"]="router",["name"]=L("Роутер"),["x"]=center.X-RouterSize/Scale/2,["y"]=center.Y-RouterSize/Scale/2,["w"]=RouterSize/Scale,["h"]=RouterSize/Scale};
     private void AddRouter(Point center)
     {
-        var obj=RouterAt(center);AlignDecoration(obj);
+        var obj=RouterAt(center);
         Remember();Decorations.Add(obj);dirty=true;routerPreview=null;RenderPlan();
     }
     private void DrawRouterPreview()
     {
         foreach(var child in Plan.Children.OfType<FrameworkElement>().Where(e=>Equals(e.Tag,"router-preview")).ToList())Plan.Children.Remove(child);
         if(routerPreview is not Point center || surveyMode || tool!="router")return;
-        var obj=RouterAt(center);AlignDecoration(obj);DrawDecoration(obj,new Vector(),Brushes.DarkOrange,SelectionOpacity,"router-preview");
+        var obj=RouterAt(center);DrawDecoration(obj,new Vector(),Brushes.DarkOrange,SelectionOpacity,"router-preview");
         var label=new Border {Tag="router-preview",IsHitTestVisible=false,Background=Brushes.White,CornerRadius=new CornerRadius(4),Padding=new Thickness(4,2,4,2),Child=new TextBlock {Text=L("X {0:0.##} м · Y {1:0.##} м", Number(obj["x"])+RouterSize/Scale/2, Number(obj["y"])+RouterSize/Scale/2)}};
         Canvas.SetLeft(label,Screen(Number(obj["x"]))+RouterSize+6);Canvas.SetTop(label,Screen(Number(obj["y"])));Ui.SetZIndex(label,160);Plan.Children.Add(label);
+    }
+
+    private Geometry? RouterClip(Rect bounds)
+    {
+        var center=bounds.Center;
+        double radius=bounds.Width*373.5/1024;
+        List<Point> polygon=[bounds.TopLeft,bounds.TopRight,bounds.BottomRight,bounds.BottomLeft];
+        bool clipped=false;
+        foreach (var wall in WallFaces())
+        {
+            WallFace? contact=null;
+            double closest=radius*radius;
+            foreach (var face in wall)
+            {
+                if (face.Depth(center)>WallFaceTolerance) continue;
+                double distance=((Vector)(OnEdge(center,face.A,face.B)-center)).SquaredLength;
+                if (distance>=closest) continue;
+                closest=distance;
+                contact=face;
+            }
+            if (contact is not WallFace boundary) continue;
+
+            var vertices=new List<Point>();
+            Point previous=polygon[^1];
+            foreach (var next in polygon)
+            {
+                double from=boundary.Depth(previous), to=boundary.Depth(next);
+                if ((from>0)!=(to>0)) vertices.Add(previous+(next-previous)*(from/(from-to)));
+                if (to<=0) vertices.Add(next);
+                previous=next;
+            }
+            clipped=true;
+            polygon=vertices;
+            if (polygon.Count<3) return new GeometryGroup();
+        }
+        if (!clipped) return null;
+        Point Local(Point point)=>new((point.X-bounds.X)*Scale,(point.Y-bounds.Y)*Scale);
+        var geometry=new StreamGeometry();
+        using var path=geometry.Open();
+        path.BeginFigure(Local(polygon[0]),true);
+        foreach (var point in polygon.Skip(1)) path.LineTo(Local(point));
+        path.EndFigure(true);
+        return geometry;
     }
 }

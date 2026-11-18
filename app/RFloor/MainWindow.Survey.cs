@@ -42,6 +42,7 @@ public partial class MainWindow
 
         ModeSwitch.IsChecked=survey;
         UpdateModeVisual();
+        RefreshPanelButtons();
         DrawingToolGroup.IsVisible=survey?false:true;
         foreach(var button in new[]{RoomTool,WallTool,DoorTool,TapeTool,RectangleTool,RoundedRectangleTool,RouterTool,EllipseTool,LineTool,TextTool}) button.IsVisible=survey?false:true;
         SurveyTools.IsVisible=survey?true:false;
@@ -68,7 +69,7 @@ public partial class MainWindow
             Status.Text = surveyTool switch {
                 SurveyTool.Add => L("Нажмите на план, чтобы разместить точку и начать замер."),
                 SurveyTool.Select => L("Нажимайте на точки или обведите их рамкой, чтобы выделить несколько."),
-                SurveyTool.Delete => L("Нажмите на точку. Если она выделена, удалятся все выделенные точки."),
+                SurveyTool.Delete => L("Нажмите на точку, чтобы подтвердить удаление."),
                 SurveyTool.Repeat => L("Нажмите на точку, чтобы повторить замер."),
                 _ => L("Добавьте точку на план или выберите существующую.")
             };
@@ -83,8 +84,8 @@ public partial class MainWindow
     }
     private void SurveyView_Changed(object sender, RoutedEventArgs e) { if (IsInitialized && !loadingSettings && !updating && Plan != null && Objects != null) RenderPlan(); }
     private bool InsideSurveyRoom(Point point) => Rooms.OfType<JsonObject>().Any(r=>
-        point.X>=Number(r["x"]) && point.X<=Number(r["x"])+Number(r["w"]) &&
-        point.Y>=Number(r["y"]) && point.Y<=Number(r["y"])+Number(r["h"]));
+        point.X>=Number(r["x"])-WallFaceTolerance && point.X<=Number(r["x"])+Number(r["w"])+WallFaceTolerance &&
+        point.Y>=Number(r["y"])-WallFaceTolerance && point.Y<=Number(r["y"])+Number(r["h"])+WallFaceTolerance);
 
     private void DrawPointPreview()
     {
@@ -103,7 +104,22 @@ public partial class MainWindow
     {
         if (SnapEnabled.IsChecked != true || PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) return point;
         double step = GridSize;
-        return new Point(Math.Round(point.X/step)*step, Math.Round(point.Y/step)*step);
+        var gridPoint=new Point(Math.Round(point.X/step)*step, Math.Round(point.Y/step)*step);
+        double range=Math.Min(step/2,6/(Scale*PlanZoom.ScaleX));
+        double closest=range*range;
+        var result=gridPoint;
+        foreach (var wall in WallFaces())
+        foreach (var face in wall)
+        {
+            var contact=OnEdge(point,face.A,face.B);
+            double distance=((Vector)(contact-point)).SquaredLength;
+            if (distance>closest || !InsideSurveyRoom(contact)) continue;
+            // Keep grid alignment along the wall while holding the perpendicular coordinate at its face.
+            var aligned=OnEdge(gridPoint,face.A,face.B);
+            result=InsideSurveyRoom(aligned) ? aligned : contact;
+            closest=distance;
+        }
+        return result;
     }
 
     private async Task SurveyClick(Point local, double hitRadius)
@@ -118,7 +134,7 @@ public partial class MainWindow
         }
         if (surveyTool == SurveyTool.Delete) {
             if (hit is not null)
-                DeleteSurveyPoints(Objects.SelectedItems.Contains(hit)
+                await DeleteSurveyPointsAsync(Objects.SelectedItems.Contains(hit)
                     ? Objects.SelectedItems.Cast<ObjectEntry>().Select(entry => entry.Item)
                     : [hit.Item]);
             return;
@@ -145,10 +161,34 @@ public partial class MainWindow
         await MeasurePointAsync(item, options, remember:false, select:true);
     }
 
-    private void DeleteSurveyPoints(IEnumerable<JsonObject> items)
+    private async Task DeleteSurveyPointsAsync(IEnumerable<JsonObject> items)
     {
-        var points = items.ToArray();
-        if (points.Length == 0) return;
+        var points = items.Distinct().Where(Points.Contains).ToArray();
+        if (points.Length == 0 || overlays.Count>0 || measurementCancellation is not null) return;
+        var source=document;
+        var dialog=new OverlayDialog(this) {
+            Title=points.Length==1?L("Удалить точку замера?"):L("Удалить точки замеров?"),
+            Width=420, ShowCloseButton=false
+        };
+        var names=new StackPanel {Spacing=6};
+        foreach (var point in points)
+            names.Children.Add(new TextBlock {Text=L("{0} · X {1:0.##} м, Y {2:0.##} м",
+                ObjectName(point,L("Точка")),Number(point["x"]),Number(point["y"])),TextWrapping=TextWrapping.Wrap});
+        var list=new ScrollViewer {Content=names,MaxHeight=240,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
+        var cancel=new Button {Content=L("Отмена"),IsCancel=true,MinHeight=44,Margin=new Thickness(0)};
+        var delete=new Button {Content=L("Удалить"),Background=Brushes.DarkRed,Foreground=Brushes.White,MinHeight=44,Margin=new Thickness(0)};
+        cancel.Click+=(_,_)=>dialog.Cancel();
+        delete.Click+=(_,_)=>dialog.Complete(true);
+        var actions=new Grid {ColumnDefinitions=new ColumnDefinitions("*,*"),ColumnSpacing=8,Margin=new Thickness(0,16,0,0)};
+        Grid.SetColumn(delete,1);
+        actions.Children.Add(cancel);
+        actions.Children.Add(delete);
+        DockPanel.SetDock(actions,Dock.Bottom);
+        dialog.Content=new DockPanel {Margin=new Thickness(20,4,20,20),Children={actions,list}};
+        var confirmation=dialog.ShowAsync();
+        cancel.Focus();
+        if (!await confirmation || !ReferenceEquals(source,document) || !points.All(Points.Contains)) return;
         Remember();
         foreach (var point in points) Points.Remove(point);
         dirty = true;
@@ -293,7 +333,7 @@ public partial class MainWindow
     {
         var marker = new Ellipse {
             Width=size, Height=size, Stroke=stroke, StrokeThickness=1.2,
-            IsHitTestVisible=false, UseLayoutRounding=false, Tag=tag, Opacity=opacity
+            IsHitTestVisible=false, UseLayoutRounding=false, Tag=tag, Opacity=opacity, ZIndex=2
         };
         Canvas.SetLeft(marker, Screen(position.X)-size/2);
         Canvas.SetTop(marker, Screen(position.Y)-size/2);

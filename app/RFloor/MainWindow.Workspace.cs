@@ -10,7 +10,9 @@ public partial class MainWindow
         public JsonObject Document=document;
         public string? Path=path;
         public bool Dirty;
-        public bool Survey=true;
+        public bool Survey=path is not null && document["points"] is JsonArray points &&
+            points.OfType<JsonObject>().SelectMany(PointReadings).Any(reading=>reading["measurements"] is JsonObject {Count:>0});
+        public string? Search;
         public string[] Undo=[], Redo=[], Selection=[];
         public Dictionary<string,string> Drafts=[];
         public bool Snap=true, Heat=true;
@@ -43,6 +45,7 @@ public partial class MainWindow
         session.Grid=GridPicker.SelectedIndex;session.Band=BandPicker.SelectedIndex;session.Metric=MetricPicker.SelectedIndex;session.AccessPoint=SelectedAccessPoint;
         session.Zoom=PlanZoom.ScaleX;session.Padding=PlanSurface.Padding;session.X=Viewport.HorizontalOffset;session.Y=Viewport.VerticalOffset;session.Rulers=rulerMode;session.Tool=tool;
         session.Selection=Objects.SelectedItems.Cast<ObjectEntry>().Select(x=>x.Item["id"]?.ToString()??"").ToArray();
+        session.Search=ObjectSearch.Text;
     }
     private void AddDocument(JsonObject doc,string? file=null)
     {
@@ -81,6 +84,7 @@ public partial class MainWindow
                 BandPicker.SelectedIndex=session.Band;MetricPicker.SelectedIndex=session.Metric;
             } finally {loadingSettings=false;}
             origin=50;PlanSurface.Padding=session.Padding;PlanZoom.ScaleX=PlanZoom.ScaleY=session.Zoom;rulerMode=session.Rulers;
+            ObjectSearch.Text=session.Search;
             tool=session.Tool;SwitchMode(session.Survey);SetToolVisuals();
             Objects.SelectedItems.Clear();foreach(var entry in Objects.Items.Cast<ObjectEntry>().Where(e=>session.Selection.Contains(e.Item["id"]?.ToString())))Objects.SelectedItems.Add(entry);
             if(session.AccessPoint is not null)AccessPointPicker.SelectedItem=AccessPointPicker.Items.Cast<ComboBoxItem>().FirstOrDefault(x=>x.Tag as string==session.AccessPoint);

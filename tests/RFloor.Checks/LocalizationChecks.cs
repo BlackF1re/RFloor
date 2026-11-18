@@ -19,7 +19,11 @@ internal static class LocalizationChecks
                 using var stream=assembly.GetManifestResourceStream("RFloor.Localization."+name)!;
                 return JsonSerializer.Deserialize<Dictionary<string,string>>(stream)!;
             }
-            var english=Read("English.json");var xaml=Read("Xaml.json");
+            var packs=Localization.AvailableLanguages;
+            var english=packs.Single(pack=>pack.Code=="en").Strings;
+            var russian=packs.Single(pack=>pack.Code=="ru").Strings;
+            if(!english.Keys.ToHashSet().SetEquals(russian.Keys))throw new Exception("Language packs have different translation keys.");
+            var xaml=Read("Xaml.json");
             foreach(var (source,translation) in english) {
                 string Slots(string text)=>string.Join(",",Regex.Matches(text,@"(?<!\{)\{(\d+)(?:[^{}]*)\}").Select(m=>m.Groups[1].Value).Order());
                 if(Slots(source)!=Slots(translation))throw new Exception("Translation changed format arguments: "+source);
@@ -47,7 +51,7 @@ internal static class LocalizationChecks
             if(heading.Text!="Точки замера" || (accessPoint.Items[0] as ComboBoxItem)?.Content?.ToString()!="Нет данных")
                 throw new Exception("Survey labels did not switch back to Russian.");
             if(Localization.L("Сохранить")!="Сохранить"||Localization.L("{0:0.##} м",1.25)!="1,25 м")throw new Exception("Russian formatting failed.");
-            foreach(var (key,source) in xaml)if(!Equals(Application.Current.Resources[key],source))throw new Exception("Russian XAML resource failed: "+key);
+            foreach(var (key,source) in xaml)if(!Equals(Application.Current.Resources[key],russian[source]))throw new Exception("Russian XAML resource failed: "+key);
             if(!Equals(((Avalonia.Controls.ComboBoxItem)band.Items[1]).Content,"5 ГГц"))throw new Exception("Open controls did not switch back to Russian.");
 
             File.WriteAllText(temporary,"{\"language\":\"en\"}");Localization.Initialize(temporary);

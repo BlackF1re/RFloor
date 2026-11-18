@@ -125,5 +125,8 @@
   "UI_ModePlan": "План",
   "UI_ModeSurvey": "Замеры",
   "UI_CoverageRadius": "Радиус интерполяции, м",
-  "UI_MultiBandSurvey": "Для замера другого диапазона переключите Wi‑Fi в настройках устройства и повторите замер в той же точке."
+  "UI_MultiBandSurvey": "Для замера другого диапазона переключите Wi‑Fi в настройках устройства и повторите замер в той же точке.",
+  "UI_ObjectSearch": "Поиск",
+  "UI_ClearObjectSearch": "Очистить поиск",
+  "UI_PointRepeatCaption": "Замерить\nзаново"
 }

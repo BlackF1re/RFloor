@@ -20,7 +20,9 @@ public partial class MainWindow
         TextBlock Note(string text)=>new(){Text=text,TextWrapping=TextWrapping.Wrap,Foreground=Brushes.Gray,Margin=new Thickness(0,6,0,16)};
         var editor=new StackPanel();editor.Children.Add(new TextBlock {Text=L("Холст и навигация"),FontSize=20,FontWeight=FontWeights.SemiBold});
         editor.Children.Add(new TextBlock {Text=L("Язык интерфейса"),Margin=new Thickness(0,12,0,4)});
-        var language=new ComboBox {ItemsSource=new[]{L("Русский"),"English"},SelectedIndex=Localization.Language=="en"?1:0,Margin=new Thickness(0,0,0,12),Padding=new Thickness(6)};
+        var language=new ComboBox {ItemsSource=Localization.AvailableLanguages,
+            SelectedItem=Localization.AvailableLanguages.Single(pack=>pack.Code==Localization.Language),
+            Margin=new Thickness(0,0,0,12),Padding=new Thickness(6)};
         editor.Children.Add(language);
         editor.Children.Add(Note(L("Настройки отображения сохраняются для приложения. Привязку можно временно отключить клавишей Shift. Режим линеек переключается также кнопкой в углу холста.")));
         var grid=new CheckBox {Content=L("Показывать сетку"),IsChecked=showGrid,Margin=new Thickness(0,0,0,12)};
@@ -80,7 +82,7 @@ public partial class MainWindow
                 if(!ReferenceEquals(settings,measurementSettings))settings["surveyDefaults"]=measurementSettings;
                 settings["thresholds"]=colors;networkTimer.Interval=TimeSpan.FromSeconds(interval);
                 showGrid=grid.IsChecked==true;showObjectLabels=names.IsChecked==true;SnapEnabled.IsChecked=snap.IsChecked;labelOpacity=opacity.Value;zoomFactor=zoom.Value;rulerMode=rulers.SelectedIndex;shortcuts=changedBindings;
-                Localization.SetLanguage(language.SelectedIndex==1?"en":"ru");
+                if (language.SelectedItem is Localization.LanguagePack pack) Localization.SetLanguage(pack.Code);
                 SavePreferences();UpdateShortcutHints();dirty=true;accepted=true;dialog.Complete(true);
             }catch(FormatException ex){error.Text=ex.Message;}
         };

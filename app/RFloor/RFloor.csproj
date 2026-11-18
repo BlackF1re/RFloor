@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault></PropertyGroup>
   <ItemGroup><PackageReference Include="Avalonia" Version="12.1.6"/><PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6"/><PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.6"/></ItemGroup>
-  <ItemGroup><AvaloniaResource Include="Assets/**"/><EmbeddedResource Include="Localization/*.json"/></ItemGroup>
+  <ItemGroup><AvaloniaResource Include="Assets/**"/><EmbeddedResource Include="Localization/**/*.json"/></ItemGroup>
 <ItemGroup><InternalsVisibleTo Include="RFloor.Checks" /></ItemGroup></Project>

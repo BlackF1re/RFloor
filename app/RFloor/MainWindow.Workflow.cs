@@ -50,17 +50,18 @@ public partial class MainWindow
     {
         var walls = Walls.Select(node => node!.AsObject()).ToList();
         foreach (var wall in walls) { var shape=new Avalonia.Controls.Shapes.Path {
-            Data=WallGeometry(wall,walls), Fill=Brushes.Gray, Tag=wall, Opacity=IsDragging(wall)?.18:1, IsHitTestVisible=false };
+            Data=WallGeometry(wall,walls), Fill=Brushes.Gray, Tag=wall, Opacity=IsDragging(wall)?.18:1, IsHitTestVisible=false,
+            ZIndex=surveyMode?1:0 };
             RenderOptions.SetEdgeMode(shape,EdgeMode.Aliased); Plan.Children.Add(shape);
         }
     }
     private static string ObjectName(JsonObject item,string fallback) => item["name"]?.GetValue<string>() ?? fallback;
     private void SelectAll_Click(object sender,RoutedEventArgs e) => Objects.SelectAll();
-    private void DeleteSelection_Click(object sender,RoutedEventArgs e)
+    private async void DeleteSelection_Click(object sender,RoutedEventArgs e)
     {
         if(measurementCancellation is not null)return;
         var selected=Objects.SelectedItems.Cast<ObjectEntry>().Select(v=>v.Item).ToList();
-        if (surveyMode) { DeleteSurveyPoints(selected); return; }
+        if (surveyMode) { await DeleteSurveyPointsAsync(selected); return; }
         CommitInlineRename();ResetPointerTools();
         if(selected.Count==0)return;
         string before=document.ToJsonString(); int count=undo.Count;
