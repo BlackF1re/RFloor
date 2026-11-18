@@ -6,6 +6,10 @@ on:
         description: Release version (x.x.x)
         required: true
         type: string
+      notes:
+        description: Release notes in Markdown
+        required: false
+        type: string
 permissions:
   contents: write
 jobs:
@@ -44,14 +48,19 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
+          NOTES: ${{ inputs.notes }}
           GH_TOKEN: ${{ github.token }}
         run: |
           test -n "$(find release-assets -type f -print -quit)"
           cd release-assets
           sha256sum RFloor-* > SHA256SUMS.txt
           cd ..
+          if [[ -n "$NOTES" ]]; then
+            printf '%s\n\n' "$NOTES" > release-notes.md
+          fi
+          printf '%s\n' 'Packages include .NET and iperf3. See SHA256SUMS.txt for package checksums.' >> release-notes.md
           gh release create "v$VERSION" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "RFloor v$VERSION" \
-            --notes "Improves tape mode scrolling, adds diagonal hatching to plan primitives, and keeps survey and router markers above plan objects. Survey previews match placed markers and stop at wall and doorway faces. Dialogs use consistent action placement and an orange accent. Packages include .NET and iperf3. See SHA256SUMS.txt for package checksums."
+            --notes-file release-notes.md
