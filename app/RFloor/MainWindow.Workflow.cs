@@ -11,11 +11,26 @@ public partial class MainWindow
         if(entry.Kind=="room")return area.Contains(new Rect(Number(obj["x"]),Number(obj["y"]),Number(obj["w"]),Number(obj["h"])));
         return area.Contains(new Point(Number(obj["x"]),Number(obj["y"])));
     }
-    private void ClearMarquee() { foreach(var shape in Plan.Children.OfType<FrameworkElement>().Where(v=>Equals(v.Tag,"marquee")).ToList()) Plan.Children.Remove(shape); }
+    private Rectangle? marquee;
+    private void ClearMarquee()
+    {
+        if(marquee is null)return;
+        Plan.Children.Remove(marquee);
+        marquee=null;
+    }
     private void DrawMarquee()
     {
         if(marqueeStart is not Point a || marqueeEnd is not Point b)return;
-        var shape=new Avalonia.Controls.Shapes.Rectangle {Width=Math.Abs(b.X-a.X)*Scale,Height=Math.Abs(b.Y-a.Y)*Scale,Stroke=Brushes.DarkOrange,StrokeThickness=1,Fill=new SolidColorBrush(Color.FromArgb(35,255,128,0)),Tag="marquee",IsHitTestVisible=false};Canvas.SetLeft(shape,Screen(Math.Min(a.X,b.X)));Canvas.SetTop(shape,Screen(Math.Min(a.Y,b.Y)));Plan.Children.Add(shape);
+        if(marquee is null)
+        {
+            marquee=new Rectangle {Stroke=Brushes.DarkOrange,StrokeThickness=1,Fill=new SolidColorBrush(Color.FromArgb(35,255,128,0)),IsHitTestVisible=false};
+            Ui.SetZIndex(marquee,150);
+        }
+        marquee.Width=Math.Abs(b.X-a.X)*Scale;
+        marquee.Height=Math.Abs(b.Y-a.Y)*Scale;
+        Canvas.SetLeft(marquee,Screen(Math.Min(a.X,b.X)));
+        Canvas.SetTop(marquee,Screen(Math.Min(a.Y,b.Y)));
+        if(marquee.Parent is null)Plan.Children.Add(marquee);
     }
     private void DrawWallMaterial()
     {

@@ -29,16 +29,23 @@ public partial class MainWindow
     {
         if (panAnchor is not Point a) return;
         if (e.MiddlePressed() != true) { EndPan(); return; }
-        Point b=e.GetPosition(Viewport); Vector d=a-b;
+        Point b=e.GetPosition(Viewport);
+        PanBy(a-b);
+        panAnchor=b; e.Handled=true;
+    }
+    private void PanBy(Vector delta)
+    {
         var pad=PlanSurface.Padding;
-        double x=Viewport.HorizontalOffset+d.X, y=Viewport.VerticalOffset+d.Y;
+        double x=Viewport.HorizontalOffset+delta.X, y=Viewport.VerticalOffset+delta.Y;
         double left=Math.Max(0,-x), top=Math.Max(0,-y);
         double right=Math.Max(0,x+Viewport.ViewportWidth-Viewport.ExtentWidth);
         double bottom=Math.Max(0,y+Viewport.ViewportHeight-Viewport.ExtentHeight);
-        PlanSurface.Padding=new Thickness(pad.Left+left,pad.Top+top,pad.Right+right,pad.Bottom+bottom);
-        Viewport.UpdateLayout();
-        Viewport.ScrollToHorizontalOffset(x+left); Viewport.ScrollToVerticalOffset(y+top);
-        panAnchor=b; e.Handled=true;
+        if(left>0 || top>0 || right>0 || bottom>0)
+        {
+            PlanSurface.Padding=new Thickness(pad.Left+left,pad.Top+top,pad.Right+right,pad.Bottom+bottom);
+            Viewport.UpdateLayout();
+        }
+        Viewport.Offset=new Vector(x+left,y+top);
     }
     private double GridSize => double.TryParse((GridPicker.SelectedItem as ComboBoxItem)?.Tag as string, NumberStyles.Float, CultureInfo.InvariantCulture, out var n) ? n : .1;
     private void GridChanged(object sender, SelectionChangedEventArgs e) { if (IsInitialized && !loadingSettings) {dirty = true;RenderPlan();} }
@@ -66,6 +73,7 @@ public partial class MainWindow
             Viewport.ScrollToHorizontalOffset(Math.Max(0, Screen(minX)*zoom-40)); Viewport.ScrollToVerticalOffset(Math.Max(0, Screen(minY)*zoom-40));
         }
         ZoomLabel.Text = $"{PlanZoom.ScaleX*100:0} %";
+        RefreshRulers();
     }
     private void MoveSelected(ObjectEntry item, Vector delta)
     {

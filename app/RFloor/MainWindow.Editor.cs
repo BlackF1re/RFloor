@@ -145,21 +145,20 @@ public partial class MainWindow
     }
     private void DrawEditorOverlay()
     {
-        int firstOverlay=Plan.Children.Count;
         DrawMarquee();
         DrawTape();
-        for(int i=firstOverlay;i<Plan.Children.Count;i++)Ui.SetZIndex(Plan.Children[i],150);
         DrawDragPreview();
     }
 
     private readonly List<Control> dragPreview=[];
-    private void DrawDragPreview()
+    private bool DrawDragPreview()
     {
         foreach(var control in dragPreview) Plan.Children.Remove(control);
         dragPreview.Clear();
-        if (dragStart is null || dragItem is not ObjectEntry item) return;
+        if (dragStart is null || dragItem is not ObjectEntry item) return true;
         int firstPreview=Plan.Children.Count;
-        var obj=item.Item; IBrush color=CanMove(item,dragDelta)?Brushes.DarkOrange:Brushes.Crimson;
+        bool valid=CanMove(item,dragDelta);
+        var obj=item.Item; IBrush color=valid?Brushes.DarkOrange:Brushes.Crimson;
         DrawObjectShape(item, dragDelta, SelectionOpacity, color, null);
         if (item.Kind=="door" && OpeningBounds(obj) is {} bounds) {
             Point a=End(obj,"a")+dragDelta,b=End(obj,"b")+dragDelta;
@@ -183,5 +182,6 @@ public partial class MainWindow
             }
         }
         dragPreview.AddRange(Plan.Children.Skip(firstPreview));
+        return valid;
     }
 }

@@ -102,10 +102,10 @@ public partial class MainWindow
             if(touches.Count>=2) {
                 var (distance,center)=PinchGeometry();
                 if(distance>1 && pinchDistance>1) ZoomAt(distance/pinchDistance,pinchCenter,center);
-                else PanTouch(pinchCenter-center);
+                else PanBy(pinchCenter-center);
                 pinchDistance=distance;
                 pinchCenter=center;
-            } else PanTouch(touchLast-next);
+            } else PanBy(touchLast-next);
         } else if(touchGesture==TouchGesture.ObjectDrag && dragItem is {} item && dragStart is Point start) {
             dragDelta=AdjustDrag(item,World(e.GetPosition(Plan),false)-start);
             DrawDragPreview();
@@ -113,7 +113,7 @@ public partial class MainWindow
             bool starting=touchGesture==TouchGesture.Tap;
             if(starting) CancelTouchGesture(clearTapePreview:true);
             touchGesture=TouchGesture.Pan;
-            PanTouch((starting?touchOrigin:touchLast)-next);
+            PanBy((starting?touchOrigin:touchLast)-next);
         } else if(touchGesture==TouchGesture.Tap) PreviewTouch(e.GetPosition(Plan));
         touchLast=next;
     }
@@ -161,12 +161,12 @@ public partial class MainWindow
         if(surveyMode && addingPoint) { pointPreview=World(local,false); DrawPointPreview(); }
         else if(!surveyMode && tool=="router") { routerPreview=World(local); DrawRouterPreview(); }
         else if(!surveyMode && tool=="text") {
-            drawingStart=drawingEnd=World(local);drawingFilled=true;DrawTouchConstruction();
+            drawingStart=drawingEnd=World(local);drawingFilled=true;DrawConstructionPreview();
         }
         else if(!surveyMode && tool=="tape" && tapeStart is not null) {
-            tapeCursor=TapeSnap(World(local,false)); DrawTape();
+            tapeCursor=TapeSnap(World(local,false)); DrawPendingTape();
         } else if(touchDrawingAnchor is Point start) {
-            drawingStart=start; drawingEnd=World(local); drawingFilled=!phoneOutline; DrawTouchConstruction();
+            drawingStart=start; drawingEnd=World(local); drawingFilled=!phoneOutline; DrawConstructionPreview();
         }
     }
 
@@ -198,11 +198,11 @@ public partial class MainWindow
         touchHold?.Dispose();
         touchHold=null;
         if(touches.Count>0) touchGesture=TouchGesture.Consumed;
-        if(touchConstruction.Count>0) {
+        if(constructionPreview.Count>0) {
             drawingStart=drawingEnd=null;
-            ClearTouchConstruction();
+            ClearConstructionPreview();
         }
-        if(clearTapePreview && tapeStart is not null) { tapeCursor=tapeStart;DrawTape(); }
+        if(clearTapePreview && tapeStart is not null) { tapeCursor=tapeStart;DrawPendingTape(); }
         if(dragStart is not null && dragItem is not null) {
             dragStart=null; dragItem=null; dragDelta=default; RenderPlan();
         }
@@ -210,7 +210,6 @@ public partial class MainWindow
         if(routerPreview is not null) { routerPreview=null; DrawRouterPreview(); }
     }
 
-    private readonly List<Control> touchConstruction=[];
     private void DrawTouchAnchor()
     {
         if(touchAnchorMarker is not null)Plan.Children.Remove(touchAnchorMarker);
@@ -223,20 +222,6 @@ public partial class MainWindow
         Ui.SetZIndex(touchAnchorMarker,150);
         Plan.Children.Add(touchAnchorMarker);
     }
-    private void ClearTouchConstruction()
-    {
-        foreach(var control in touchConstruction) Plan.Children.Remove(control);
-        touchConstruction.Clear();
-    }
-
-    private void DrawTouchConstruction()
-    {
-        ClearTouchConstruction();
-        int first=Plan.Children.Count;
-        DrawConstruction(drawingStart!.Value,drawingEnd!.Value);
-        touchConstruction.AddRange(Plan.Children.Skip(first));
-    }
-
     private static string ObjectLabel(ObjectEntry entry)
     {
         var obj=entry.Item;

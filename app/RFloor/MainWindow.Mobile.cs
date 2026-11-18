@@ -75,13 +75,4 @@ public partial class MainWindow {
         RefreshPanelButtons();
         UpdateModeVisual();
     }
-    private void PanTouch(Vector delta){
-        var pad=PlanSurface.Padding;double x=Viewport.Offset.X+delta.X,y=Viewport.Offset.Y+delta.Y;
-        double left=Math.Max(0,-x),top=Math.Max(0,-y),right=Math.Max(0,x+Viewport.Viewport.Width-Viewport.Extent.Width),bottom=Math.Max(0,y+Viewport.Viewport.Height-Viewport.Extent.Height);
-        if(left>0 || top>0 || right>0 || bottom>0) {
-            PlanSurface.Padding=new Thickness(pad.Left+left,pad.Top+top,pad.Right+right,pad.Bottom+bottom);
-            Viewport.UpdateLayout();
-        }
-        Viewport.Offset=new Vector(x+left,y+top);
-    }
 }

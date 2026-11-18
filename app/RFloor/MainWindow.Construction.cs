@@ -4,6 +4,23 @@ namespace RFloor;
 
 public partial class MainWindow
 {
+    private readonly List<Control> constructionPreview=[];
+
+    private void ClearConstructionPreview()
+    {
+        foreach(var control in constructionPreview)Plan.Children.Remove(control);
+        constructionPreview.Clear();
+    }
+
+    private void DrawConstructionPreview()
+    {
+        ClearConstructionPreview();
+        if(drawingStart is not Point start || drawingEnd is not Point end)return;
+        int first=Plan.Children.Count;
+        DrawConstruction(start,end);
+        constructionPreview.AddRange(Plan.Children.Skip(first));
+    }
+
     private (JsonObject Wall, Point A, Point B)? DrawnOpening(Point start,Point end)
     {
         var wall=Walls.Select(n=>n!.AsObject()).OrderBy(w=>SegmentDistance(start,w).Distance).FirstOrDefault();

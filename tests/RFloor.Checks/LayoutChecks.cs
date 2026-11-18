@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -67,5 +68,69 @@ internal static class LayoutChecks {
         Require(!view.GetVisualDescendants().Any(c=>c.GetType().Name=="OverlayDialog"),"Cancel did not close settings.");
         Require(view.FindControl<Control>("MeasurementSettingsPanel")!.Parent is Panel,"Cancel did not restore measurement settings.");
         host.Close();Console.WriteLine("Layout checks passed: wheel modifiers, cursor anchored zoom, decimal grid cultures, checkbox templates, fixed settings tabs and Cancel.");
+        CheckCanvasInput();
+    }
+
+    private static void CheckCanvasInput()
+    {
+        const BindingFlags flags=BindingFlags.Instance|BindingFlags.NonPublic;
+        var view=new MainWindow();
+        var host=new Window {Width=1440,Height=900,Content=view};
+        object? Call(string name,params object?[] args)=>typeof(MainWindow).GetMethod(name,flags)!.Invoke(view,args);
+        void Set(string name,object value)=>typeof(MainWindow).GetField(name,flags)!.SetValue(view,value);
+        void Require(bool condition,string message){if(!condition)throw new Exception(message);}
+        void Layout(){Dispatcher.UIThread.RunJobs();host.UpdateLayout();}
+        var sample=JsonNode.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"sample.rfplan")))!.AsObject();
+        Call("AddDocument",sample,null);
+        Call("SwitchMode",false);
+        Set("rulerMode",2);
+        host.Show();Layout();
+
+        var plan=view.FindControl<Canvas>("Plan")!;
+        Point At(double x,double y)=>plan.TranslatePoint(new Point(x,y),host)!.Value;
+        host.MouseMove(At(180,180));Layout();
+        var ruler=view.FindControl<Canvas>("RulerTop")!;
+        var projection=view.FindControl<Canvas>("ProjectionOverlay")!;
+        var button=view.FindControl<Button>("RulerModeButton")!;
+        var marks=ruler.Children.OfType<Canvas>().Single();
+        var ticks=marks.Children.ToArray();
+        var icon=button.Content;
+        var lines=projection.Children.OfType<Avalonia.Controls.Shapes.Line>().ToArray();
+        Require(lines.Length==2 && lines.All(line=>line.IsVisible),"Cursor projection did not appear.");
+        double originalX=((TranslateTransform)lines[0].RenderTransform!).X;
+        host.MouseMove(At(210,190));Layout();
+        Require(ticks.Length>0 && marks.Children.SequenceEqual(ticks) && ReferenceEquals(icon,button.Content) &&
+            projection.Children.SequenceEqual(lines),"Pointer movement rebuilt rulers.");
+        Require(Math.Abs(((TranslateTransform)lines[0].RenderTransform!).X-originalX-30)<1,"Projection did not follow the pointer.");
+        var viewport=view.FindControl<ScrollViewer>("Viewport")!;
+        var tickPosition=((TranslateTransform)marks.RenderTransform!).X;
+        viewport.Offset=new Vector(2,0);Layout();
+        Require(marks.Children.SequenceEqual(ticks) && Math.Abs(((TranslateTransform)marks.RenderTransform!).X-tickPosition+2)<1,
+            "Small pan did not translate existing ruler marks.");
+        viewport.Offset=default;Layout();
+
+        Call("SetTool","rect");Layout();
+        var permanent=plan.Children[0];
+        var objects=view.FindControl<ListBox>("Objects")!;
+        var firstObject=objects.Items[0];
+        var from=At(470,270);
+        var to=At(560,355);
+        host.MouseDown(from,MouseButton.Left);
+        int childrenAtPress=plan.Children.Count;
+        host.MouseMove(to,RawInputModifiers.LeftMouseButton);Layout();
+        Require(ReferenceEquals(permanent,plan.Children[0]) && ReferenceEquals(firstObject,objects.Items[0]) &&
+            plan.Children.Count==childrenAtPress,"Construction preview rebuilt the plan or accumulated controls.");
+        int decorations=sample["geometry"]!["decorations"]!.AsArray().Count;
+        host.MouseUp(to,MouseButton.Left);Layout();
+        Require(sample["geometry"]!["decorations"]!.AsArray().Count==decorations+1,"Construction did not commit on release.");
+
+        Call("SetTool","tape");Layout();
+        Call("TapeClick",new Point(1,1));Call("TapeClick",new Point(2,1));Call("TapeClick",new Point(2,2));
+        var tapes=plan.Children.OfType<Control>().Where(control=>Equals(control.Tag,"tape-overlay")).ToArray();
+        host.MouseMove(At(350,300));Layout();
+        Require(tapes.Length>=4 && plan.Children.OfType<Control>().Where(control=>Equals(control.Tag,"tape-overlay")).SequenceEqual(tapes),
+            "Moving a pending tape rebuilt completed tapes or replaced its preview.");
+        host.Close();
+        Console.WriteLine("Canvas input checks passed: persistent rulers, scrolling, cursor projection, and isolated construction and tape previews.");
     }
 }

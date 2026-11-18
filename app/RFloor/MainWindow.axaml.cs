@@ -181,10 +181,7 @@ public partial class MainWindow : SurfaceWindow
         foreach (var node in Walls) { var wall=node!.AsObject(); if (!surveyMode) Objects.Items.Add(new ObjectEntry(L("{0} · {1:0.##} м", ObjectName(wall,L("Стена")), Length(wall)), wall, "wall")); }
         foreach (var node in Doors) { var door=node!.AsObject(); DrawOpening(door); if (!surveyMode) Objects.Items.Add(new ObjectEntry(L("{0} · {1:0.##} м", ObjectName(door,L("Проём")), Length(door)), door, "door")); }
         if (surveyMode) RenderPoints();
-        if (drawingStart is Point start && drawingEnd is Point end)
-        {
-            DrawConstruction(start,end);
-        }
+        DrawConstructionPreview();
         DrawDecorations();
         DrawRouterPreview();
         DrawTouchAnchor();
@@ -196,6 +193,7 @@ public partial class MainWindow : SurfaceWindow
         Objects_SelectionChanged(Objects, null!);
         DrawPointPreview();
         RefreshTabHeaders();
+        RefreshRulers();
     }
     private static double Length(JsonObject obj) { double dx=Number(obj["b"]!["x"])-Number(obj["a"]!["x"]), dy=Number(obj["b"]!["y"])-Number(obj["a"]!["y"]); return Math.Sqrt(dx*dx+dy*dy); }
     private void DrawSegment(JsonObject obj, IBrush color, double thickness, bool dashed = false)
@@ -279,33 +277,42 @@ public partial class MainWindow : SurfaceWindow
         if(e.Pointer.Type==PointerType.Touch)return;
         if (inlineNameEditor is not null) { CommitInlineRename(); e.Handled=true; return; }
         if (!surveyMode && tool == "tape") return;
-        var point = World(e.GetPosition(Plan));
+        var local = e.GetPosition(Plan);
         if ((surveyMode && !addingPoint) || (!surveyMode && tool == "select"))
         {
-            if (PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) { marqueeStart=marqueeEnd=World(e.GetPosition(Plan),false); Plan.CapturePointer(); return; }
-            SelectAt(World(e.GetPosition(Plan), false));
+            if (PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) { marqueeStart=marqueeEnd=World(local,false); Plan.CapturePointer(); return; }
+            SelectAt(World(local, false));
             if (e.Clicks()==2 && Objects.SelectedItem is not null) { Rename_Click(sender,e); return; }
             if (PointerContext.Modifiers.HasFlag(KeyModifiers.Control)) return;
-            if (Objects.SelectedItem is null) { marqueeStart=marqueeEnd=World(e.GetPosition(Plan),false); Plan.CapturePointer(); return; }
-            if (Objects.SelectedItem is ObjectEntry selected) { dragItem = selected; dragStart = World(e.GetPosition(Plan), false); Plan.CapturePointer(); }
+            if (Objects.SelectedItem is null) { marqueeStart=marqueeEnd=World(local,false); Plan.CapturePointer(); return; }
+            if (Objects.SelectedItem is ObjectEntry selected) { dragItem = selected; dragStart = World(local, false); Plan.CapturePointer(); }
             return;
         }
+        var point = World(local);
         if (surveyMode) { SurveyClick(point); return; }
         if(tool=="router"){AddRouter(point);return;}
 
         drawingFilled=e.Button()==MouseButton.Left;drawingButton=e.Button();e.Handled=true;
-        drawingStart = drawingEnd = point; Plan.CapturePointer(); RenderPlan();
+        drawingStart = drawingEnd = point; Plan.CapturePointer(); DrawConstructionPreview();
     }
     private void Plan_MouseMove(object sender, PointerEventArgs e)
     {
         if(e.Pointer.Type==PointerType.Touch)return;
-        if(!surveyMode && tool=="router"){routerPreview=World(e.GetPosition(Plan));DrawRouterPreview();return;}
-        if(surveyMode && addingPoint) {pointPreview=World(e.GetPosition(Plan));DrawPointPreview();return;}
-        if (marqueeStart is not null && Plan.IsPointerCaptured()) { marqueeEnd=World(e.GetPosition(Plan),false); RenderPlan(); return; }
-        if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured()) { dragDelta = AdjustDrag(item, World(e.GetPosition(Plan), false)-from); RenderPlan(); Status.Text = CanMove(item, dragDelta) ? L("Отпустите кнопку мыши, чтобы переместить объект.") : L("Здесь объект пересекается с другим или выходит за допустимые границы."); return; }
+        if(!surveyMode && tool=="router") {var point=World(e.GetPosition(Plan));if(routerPreview!=point){routerPreview=point;DrawRouterPreview();}return;}
+        if(surveyMode && addingPoint) {var point=World(e.GetPosition(Plan));if(pointPreview!=point){pointPreview=point;DrawPointPreview();}return;}
+        if (marqueeStart is not null && Plan.IsPointerCaptured()) { marqueeEnd=World(e.GetPosition(Plan),false); DrawMarquee(); return; }
+        if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured())
+        {
+            var delta=AdjustDrag(item,World(e.GetPosition(Plan),false)-from);
+            if(dragPreview.Count>0 && dragDelta==delta)return;
+            dragDelta=delta;
+            Status.Text=DrawDragPreview() ? L("Отпустите кнопку мыши, чтобы переместить объект.") : L("Здесь объект пересекается с другим или выходит за допустимые границы.");
+            return;
+        }
         if (!surveyMode && tool == "tape") return;
         if (drawingStart is null || !Plan.IsPointerCaptured()) return;
-        drawingEnd = World(e.GetPosition(Plan)); RenderPlan();
+        var end=World(e.GetPosition(Plan));
+        if(drawingEnd!=end){drawingEnd=end;DrawConstructionPreview();}
     }
     private void Plan_MouseUp(object sender, PointerReleasedEventArgs e)
     {
@@ -316,7 +323,8 @@ public partial class MainWindow : SurfaceWindow
         if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured())
         {
             Point to = World(e.GetPosition(Plan), false); var delta = AdjustDrag(item, to-from); bool valid = CanMove(item, delta); Plan.ReleasePointer(); dragStart = null; dragItem = null; dragDelta = new Vector();
-            if (((Vector)(to-from)).Length * Scale * PlanZoom.ScaleX >= 4 && valid) MoveSelected(item, delta); else RenderPlan();
+            if (((Vector)(to-from)).Length * Scale * PlanZoom.ScaleX >= 4 && delta.Length>=1e-8 && valid) MoveSelected(item, delta);
+            else if(dragPreview.Count>0) RenderPlan();
             return;
         }
         if (drawingStart is not Point start || !Plan.IsPointerCaptured()) return;
@@ -326,6 +334,7 @@ public partial class MainWindow : SurfaceWindow
     private void FinishDrawing(Point start,Point end)
     {
         drawingStart = drawingEnd = null;
+        ClearConstructionPreview();
         if(tool is "wall" or "line")(start,end)=AlignConstructionLine(start,end,tool=="wall"?WallStroke:2);
         if(tool is "rect" or "roundRect" or "ellipse" or "line" or "text"){AddDecoration(start,end);if(tool!="text")RenderPlan();return;}
         if(tool=="door"){CutDrawnOpening(start,end);RenderPlan();return;}

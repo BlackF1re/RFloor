@@ -27,16 +27,6 @@ public partial class MainWindow {
         foreach(var obj in Points.Select(n=>n!.AsObject()).Where(o=>!ReferenceEquals(o,ignored)))
             yield return new EllipseGeometry(new Rect(Screen(Number(obj["x"]))-1.25,Screen(Number(obj["y"]))-1.25,2.5,2.5));
     }
-    private IEnumerable<(Point A,Point B)> SurfaceEdges(JsonObject? ignored=null,string? roomId=null) {
-        var bodies=SurfaceBodies(ignored,roomId).ToList();
-        foreach(var edge in bodies.SelectMany(GeometryEdges)) {
-            Vector axis=edge.B-edge.A;if(axis.Length<1e-9)continue;
-            var midpoint=new Point(Screen((edge.A.X+edge.B.X)/2),Screen((edge.A.Y+edge.B.Y)/2));
-            Vector normal=new(-axis.Y/axis.Length*.05,axis.X/axis.Length*.05);
-            if(bodies.Any(b=>b.FillContains(midpoint+normal)) && bodies.Any(b=>b.FillContains(midpoint-normal)))continue;
-            yield return edge;
-        }
-    }
     private IEnumerable<(Point A,Point B)> GeometryEdges(Geometry geometry) {
         Point WorldPixel(Point p)=>new((p.X-origin)/Scale,(p.Y-origin)/Scale);
         var points=Contour(geometry);
@@ -45,9 +35,22 @@ public partial class MainWindow {
     private static Point OnEdge(Point p,Point a,Point b) {Vector d=b-a;return a+d*(d.SquaredLength<1e-16?0:Math.Clamp(Vectors.Dot(p-a,d)/d.SquaredLength,0,1));}
     private Point? SurfaceSnap(Point point) {
         double best=11/(Scale*PlanZoom.ScaleX);Point? result=null;
-        foreach(var edge in SurfaceEdges()) {
-            Point candidate=OnEdge(point,edge.A,edge.B);double distance=((Vector)(candidate-point)).Length;
-            if(distance<best){best=distance;result=candidate;}
+        var pixel=new Point(Screen(point.X),Screen(point.Y));
+        double radius=best*Scale;
+        var search=new Rect(pixel.X-radius,pixel.Y-radius,2*radius,2*radius);
+        var bodies=SurfaceBodies().Select(shape=>(Shape:shape,Bounds:shape.Bounds)).ToArray();
+        bool Covered(Point p)=>bodies.Any(body=>body.Bounds.Contains(p) && body.Shape.FillContains(p));
+        foreach(var body in bodies) {
+            if(!body.Bounds.Intersects(search))continue;
+            foreach(var edge in GeometryEdges(body.Shape)) {
+                Vector axis=edge.B-edge.A;double length=axis.Length;if(length<1e-9)continue;
+                Point candidate=OnEdge(point,edge.A,edge.B);double distance=((Vector)(candidate-point)).Length;
+                if(distance>=best)continue;
+                var midpoint=new Point(Screen((edge.A.X+edge.B.X)/2),Screen((edge.A.Y+edge.B.Y)/2));
+                Vector normal=new(-axis.Y/length*.05,axis.X/length*.05);
+                if(Covered(midpoint+normal) && Covered(midpoint-normal))continue;
+                best=distance;result=candidate;
+            }
         }
         return result;
     }
@@ -81,21 +84,29 @@ public partial class MainWindow {
         var moving=shapes.SelectMany(GeometryEdges).Select(e=>(A:e.A+delta,B:e.B+delta)).ToList();
         var targets=SurfaceBodies(entry.Item,entry.Kind=="room"?entry.Item["id"]?.ToString():null).ToList();
         double tolerance=11/(Scale*PlanZoom.ScaleX);var corrections=new List<Vector>();
-        void Consider(Vector v){if(v.Length<tolerance)corrections.Add(v);}
-        foreach(var target in targets.SelectMany(GeometryEdges))
-        foreach(var source in moving) {
-            Consider(OnEdge(source.A,target.A,target.B)-source.A);Consider(OnEdge(source.B,target.A,target.B)-source.B);
-            Consider(target.A-OnEdge(target.A,source.A,source.B));Consider(target.B-OnEdge(target.B,source.A,source.B));
+        double toleranceSquared=tolerance*tolerance;
+        void Consider(Vector v){if(v.SquaredLength<toleranceSquared)corrections.Add(v);}
+        Rect Bounds((Point A,Point B) edge)=>Rects.Between(edge.A,edge.B).Inflate(tolerance);
+        var movingEdges=moving.Select(edge=>(Edge:edge,Bounds:Bounds(edge))).ToArray();
+        foreach(var target in targets.SelectMany(GeometryEdges)) {
+            var targetBounds=Rects.Between(target.A,target.B);
+            foreach(var (source,bounds) in movingEdges) {
+                if(!bounds.Intersects(targetBounds))continue;
+                Consider(OnEdge(source.A,target.A,target.B)-source.A);Consider(OnEdge(source.B,target.A,target.B)-source.B);
+                Consider(target.A-OnEdge(target.A,source.A,source.B));Consider(target.B-OnEdge(target.B,source.A,source.B));
+            }
         }
         // Combine nearby horizontal and vertical contacts to lock a corner on both axes.
         var xs=corrections.Where(v=>Math.Abs(v.Y)<1e-8 && Math.Abs(v.X)>1e-8).OrderBy(v=>v.SquaredLength).Take(4).ToList();
         var ys=corrections.Where(v=>Math.Abs(v.X)<1e-8 && Math.Abs(v.Y)>1e-8).OrderBy(v=>v.SquaredLength).Take(4).ToList();
         var corners=xs.SelectMany(x=>ys.Select(y=>x+y)).OrderBy(v=>v.SquaredLength);
-        foreach(var correction in corners.Concat(corrections.OrderBy(v=>v.SquaredLength))) {
+        var targetBoundsList=targets.Select(target=>(Shape:target,Bounds:target.Bounds)).ToArray();
+        foreach(var correction in corners.Concat(corrections.OrderBy(v=>v.SquaredLength)).Distinct()) {
             Vector shift=delta+correction;
             bool clear=shapes.All(shape=> {
                 var moved=shape.Clone();moved.Transform=new TranslateTransform(shift.X*Scale,shift.Y*Scale);
-                return targets.All(target=>GeometryOps.IntersectionEmpty(moved,target));
+                var bounds=moved.Bounds;
+                return targetBoundsList.All(target=>!bounds.Intersects(target.Bounds) || GeometryOps.IntersectionEmpty(moved,target.Shape));
             });
             if(clear)return shift;
         }
