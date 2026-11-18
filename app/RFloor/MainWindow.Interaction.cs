@@ -11,11 +11,12 @@ public partial class MainWindow
     private void PanStart(object sender,PointerPressedEventArgs e)
     {
         if(e.Handled)return;
-        if(e.Button()==MouseButton.Right && !surveyMode) {
+        bool onPlan=e.Source is Visual source && source.GetSelfAndVisualAncestors().Contains(Plan);
+        if(onPlan && e.Button()==MouseButton.Right && !surveyMode) {
             if(DeleteTapeAt(World(e.GetPosition(Plan),false))){e.Handled=true;return;}
             if(tool=="tape"){tapeStart=tapeCursor=null;DrawTape();e.Handled=true;return;}
         }
-        if(e.Button()==MouseButton.Left && !surveyMode && tool=="tape") {
+        if(onPlan && e.Button()==MouseButton.Left && !surveyMode && tool=="tape") {
             TapeClick(TapeSnap(World(e.GetPosition(Plan),false)));
             e.Handled=true;return;
         }
@@ -74,6 +75,7 @@ public partial class MainWindow
         }
         ZoomLabel.Text = $"{PlanZoom.ScaleX*100:0} %";
         RefreshRulers();
+        if(pointPreview is not null)DrawPointPreview();
     }
     private void MoveSelected(ObjectEntry item, Vector delta)
     {

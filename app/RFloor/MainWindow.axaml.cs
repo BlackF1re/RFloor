@@ -145,6 +145,7 @@ public partial class MainWindow : SurfaceWindow
     {
         CommitInlineRename();
         wallFaces=null;
+        openingFaces=null;
         roomJunctionWalls=null;
         foreach (var (items, prefix) in new[] { (Rooms, L("Комната")), (Walls, L("Стена")), (Doors, L("Проём")), (Points, L("Точка")) })
             for (int i=0; i<items.Count; i++)
@@ -268,6 +269,7 @@ public partial class MainWindow : SurfaceWindow
         PlanZoom.ScaleX=PlanZoom.ScaleY=next; Viewport.UpdateLayout();
         Viewport.ScrollToHorizontalOffset(x*next+left-target.X); Viewport.ScrollToVerticalOffset(y*next+top-target.Y);
         ZoomLabel.Text=$"{next*100:0} %"; RefreshRulers(); UpdateCoverageHover();
+        if(pointPreview is not null)DrawPointPreview();
     }
     private void ZoomIn_Click(object sender, RoutedEventArgs e) => Zoom(zoomFactor);
     private void ZoomOut_Click(object sender, RoutedEventArgs e) => Zoom(1/zoomFactor);

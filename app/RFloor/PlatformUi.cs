@@ -38,6 +38,26 @@ internal sealed class OverlayDialog(MainWindow owner) : UserControl
     internal void Complete(bool accepted){if(!completion.Task.IsCompleted){owner.CloseOverlay(this);completion.TrySetResult(accepted);}}
     internal Task<bool> ShowAsync(){owner.ShowOverlay(this,Title);return completion.Task;}
     internal void Cancel()=>Complete(false);
+
+    internal static Grid Actions(Button? cancel,Button confirm,Button? neutral=null)
+    {
+        var row=new Grid {ColumnDefinitions=new ColumnDefinitions(neutral is null?"Auto,*,Auto":"*,Auto,*"),
+            ColumnSpacing=6,Margin=new Thickness(0,12,0,0)};
+        void Place(Button button,int column,HorizontalAlignment alignment)
+        {
+            button.MinHeight=44;
+            button.Padding=new Thickness(8,6);
+            button.Margin=new Thickness(0);
+            button.HorizontalAlignment=alignment;
+            Grid.SetColumn(button,column);
+            row.Children.Add(button);
+        }
+        if(cancel is not null)Place(cancel,0,HorizontalAlignment.Left);
+        if(neutral is not null)Place(neutral,1,HorizontalAlignment.Center);
+        confirm.Classes.Add("dialogAccent");
+        Place(confirm,2,HorizontalAlignment.Right);
+        return row;
+    }
 }
 internal enum MessageBoxButton {OK,YesNoCancel}
 internal enum MessageBoxImage {Error,Warning,Question}
@@ -47,10 +67,26 @@ internal static class MessageBox
     internal static async void Show(MainWindow owner,string text,string title="RFloor",MessageBoxButton buttons=MessageBoxButton.OK,MessageBoxImage image=MessageBoxImage.Warning)=>await Ask(owner,text,title,buttons,image);
     internal static async Task<MessageBoxResult> Ask(MainWindow owner,string text,string title,MessageBoxButton buttons,MessageBoxImage image)
     {
-        MessageBoxResult result=MessageBoxResult.Cancel;var dialog=new OverlayDialog(owner) {Title=title};var content=new StackPanel {Margin=new Thickness(20),Spacing=16,MaxWidth=480};
-        content.Children.Add(new TextBlock {Text=text,TextWrapping=TextWrapping.Wrap});var row=new WrapPanel {Orientation=Orientation.Horizontal};
-        void Add(string label,MessageBoxResult value){var button=new Button {Content=Localization.L(label),MinHeight=44,Margin=new Thickness(0,4,8,0)};button.Click+=(_,_)=>{result=value;dialog.Complete(true);};row.Children.Add(button);}
-        if(buttons==MessageBoxButton.YesNoCancel){Add("Сохранить",MessageBoxResult.Yes);Add("Не сохранять",MessageBoxResult.No);Add("Отмена",MessageBoxResult.Cancel);}else Add("OK",MessageBoxResult.OK);
-        content.Children.Add(row);dialog.Content=content;await dialog.ShowAsync();return result;
+        MessageBoxResult result=MessageBoxResult.Cancel;
+        bool save=buttons==MessageBoxButton.YesNoCancel;
+        var dialog=new OverlayDialog(owner) {Title=title,Width=save?380:360};
+        Button Choice(string label,MessageBoxResult value)
+        {
+            var button=new Button {Content=Localization.L(label)};
+            button.Click+=(_,_)=>{result=value;dialog.Complete(value!=MessageBoxResult.Cancel);};
+            return button;
+        }
+        var cancel=save?Choice("Отмена",MessageBoxResult.Cancel):null;
+        if(cancel is not null)cancel.IsCancel=true;
+        var confirm=save?Choice("Сохранить",MessageBoxResult.Yes):Choice("OK",MessageBoxResult.OK);
+        confirm.IsDefault=true;
+        var actions=OverlayDialog.Actions(cancel,confirm,
+            save?Choice("Не сохранять",MessageBoxResult.No):null);
+        DockPanel.SetDock(actions,Dock.Bottom);
+        dialog.Content=new DockPanel {Margin=new Thickness(20,4,20,20),MaxWidth=480,
+            Children={actions,new ScrollViewer {Content=new TextBlock {Text=text,TextWrapping=TextWrapping.Wrap},
+                VerticalScrollBarVisibility=ScrollBarVisibility.Auto}}};
+        await dialog.ShowAsync();
+        return result;
     }
 }

@@ -45,7 +45,10 @@ public partial class MainWindow {
         }
         var header=new DockPanel {Margin=new Thickness(16,8)};
         if(dialog.ShowCloseButton) {
-            var close=new Button {Content="×",MinWidth=44,MinHeight=44};
+            var close=new Button {Content="×",MinWidth=44,MinHeight=44,Margin=new Thickness(0),
+                FontSize=20,Padding=new Thickness(0),Tip=L("Отмена")};
+            close.Classes.Add("dialogAccent");
+            Avalonia.Automation.AutomationProperties.SetName(close,L("Отмена"));
             close.Click+=(_,_)=>dialog.Cancel();DockPanel.SetDock(close,Dock.Right);header.Children.Add(close);
         }
         header.Children.Add(new TextBlock {Text=title,FontSize=20,VerticalAlignment=VerticalAlignment.Center});

@@ -5,6 +5,7 @@ namespace RFloor;
 
 public partial class MainWindow
 {
+    private const double ProjectionStroke = 1;
     private Point? rulerPointer;
     private int rulerMode = 1;
     private (int Mode, double Zoom, double Origin, Size Size, Vector Offset, CultureInfo Culture)? rulerLayout;
@@ -33,19 +34,20 @@ public partial class MainWindow
     {
         if(e.Pointer.Type==PointerType.Touch)return;
         PanMove(e);
-        if(!surveyMode && tool=="tape" && tapeStart is not null && panAnchor is null)
+        if(!surveyMode && tool=="tape" && tapeStart is not null && panAnchor is null &&
+           e.Source is Visual source && source.GetSelfAndVisualAncestors().Contains(Plan))
         {
             var cursor=TapeSnap(World(e.GetPosition(Plan),false));
             if(tapeCursor!=cursor){tapeCursor=cursor;DrawPendingTape();}
         }
         rulerPointer=e.GetPosition(Viewport);
-        hoveredSurveyPoint=e.Source is Border {Tag:"survey-point-hit"} hit ? hit : null;
+        SetHoveredSurveyPoint(e.Source is Border {Tag:"survey-point-hit"} hit ? hit : null);
         UpdateRulerPointer();
         UpdateCoverageHover();
     }
     private void Viewport_PointerLeave(object sender, PointerEventArgs e)
     {
-        rulerPointer=null; hoveredSurveyPoint=null;
+        rulerPointer=null; SetHoveredSurveyPoint(null);
         UpdateRulerPointer();
         UpdateCoverageHover();
         if(routerPreview is not null){routerPreview=null;DrawRouterPreview();}
@@ -149,7 +151,7 @@ public partial class MainWindow
     {
         var position=new TranslateTransform();
         var line=new Line {
-            Stroke=Brushes.DarkOrange,StrokeThickness=projection?1:2,
+            Stroke=Brushes.DarkOrange,StrokeThickness=projection?ProjectionStroke:2,
             Opacity=projection?.65:1,RenderTransform=position,IsHitTestVisible=false,IsVisible=false
         };
         if(projection)line.StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> {4,4};

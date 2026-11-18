@@ -95,7 +95,7 @@ public partial class MainWindow
             Plan.Children.Remove(control);
         if(!surveyMode || surveyTool != SurveyTool.Add || measurementCancellation is not null || pointPreview is not Point p || !CanPlaceSurveyPoint(p)) return;
         DrawMeasurementRays(p);
-        Plan.Children.Add(CreatePointMarker(p, Brushes.DarkOrange, "point-preview", 6, .7));
+        Plan.Children.Add(CreatePointMarker(p, Brushes.DarkOrange, "point-preview", SurveyMarkerSize));
     }
 
     private Point SurveyPosition(Point local)
@@ -174,7 +174,7 @@ public partial class MainWindow
         var source=document;
         var dialog=new OverlayDialog(this) {
             Title=points.Length==1?L("Удалить точку замера?"):L("Удалить точки замеров?"),
-            Width=420, ShowCloseButton=false
+            Width=420
         };
         var names=new StackPanel {Spacing=6};
         foreach (var point in points)
@@ -182,14 +182,11 @@ public partial class MainWindow
                 ObjectName(point,L("Точка")),Number(point["x"]),Number(point["y"])),TextWrapping=TextWrapping.Wrap});
         var list=new ScrollViewer {Content=names,MaxHeight=240,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};
-        var cancel=new Button {Content=L("Отмена"),IsCancel=true,MinHeight=44,Margin=new Thickness(0)};
-        var delete=new Button {Content=L("Удалить"),Background=Brushes.DarkRed,Foreground=Brushes.White,MinHeight=44,Margin=new Thickness(0)};
+        var cancel=new Button {Content=L("Отмена"),IsCancel=true};
+        var delete=new Button {Content=L("Удалить")};
         cancel.Click+=(_,_)=>dialog.Cancel();
         delete.Click+=(_,_)=>dialog.Complete(true);
-        var actions=new Grid {ColumnDefinitions=new ColumnDefinitions("*,*"),ColumnSpacing=8,Margin=new Thickness(0,16,0,0)};
-        Grid.SetColumn(delete,1);
-        actions.Children.Add(cancel);
-        actions.Children.Add(delete);
+        var actions=OverlayDialog.Actions(cancel,delete);
         DockPanel.SetDock(actions,Dock.Bottom);
         dialog.Content=new DockPanel {Margin=new Thickness(20,4,20,20),Children={actions,list}};
         var confirmation=dialog.ShowAsync();
@@ -296,16 +293,44 @@ public partial class MainWindow
             if(ReferenceEquals(document,currentDocument) && Points.Contains(item)) RenderPlan();
         }
     }
+    private const double SurveyMarkerSize=6, SurveyFocusSize=11;
+    private const int SurveyMarkerLayer=152;
+    private Border? hoveredSurveyPoint;
+    private Ellipse? surveyHoverRing;
+
+    private void SetHoveredSurveyPoint(Border? hit)
+    {
+        if(ReferenceEquals(hoveredSurveyPoint,hit))return;
+        hoveredSurveyPoint=hit;
+        RefreshSurveyHoverRing();
+    }
+
+    private void RefreshSurveyHoverRing()
+    {
+        if(surveyHoverRing is not null)Plan.Children.Remove(surveyHoverRing);
+        surveyHoverRing=null;
+        if(!surveyMode || hoveredSurveyPoint is not { DataContext:JsonObject point } hit ||
+           !ReferenceEquals(hit.Parent,Plan) ||
+           Objects.SelectedItems?.OfType<ObjectEntry>().Any(entry=>ReferenceEquals(entry.Item,point))==true) return;
+        var position=new Point(Number(point["x"]),Number(point["y"]));
+        surveyHoverRing=CreatePointMarker(position,Brushes.DarkOrange,"point-hover",SurveyFocusSize);
+        Plan.Children.Add(surveyHoverRing);
+    }
+
     private void RenderPoints()
     {
+        var previousHover=hoveredSurveyPoint?.DataContext;
+        hoveredSurveyPoint=null;
         int index=0;
         foreach(var point in Points.OfType<JsonObject>()) {
             index++;
             var sample=Sample(point);
             const double hitSize = 14;
             var position = new Point(Number(point["x"]), Number(point["y"]));
-            var marker = CreatePointMarker(position, Brushes.DarkOrange, point, 6);
-            var hit = new Border { Width=hitSize, Height=hitSize, Background=Brushes.Transparent, Tip=PointTooltip(point), UseLayoutRounding=false, Tag="survey-point-hit" };
+            var marker = CreatePointMarker(position, Brushes.DarkOrange, point, SurveyMarkerSize);
+            var hit = new Border { Width=hitSize, Height=hitSize, Background=Brushes.Transparent, Tip=PointTooltip(point),
+                UseLayoutRounding=false, Tag="survey-point-hit",DataContext=point,ZIndex=SurveyMarkerLayer+1 };
+            if(ReferenceEquals(previousHover,point))hoveredSurveyPoint=hit;
             Canvas.SetLeft(hit, Screen(position.X)-hitSize/2);
             Canvas.SetTop(hit, Screen(position.Y)-hitSize/2);
             Plan.Children.Add(marker);
@@ -319,7 +344,7 @@ public partial class MainWindow
     {
         var marker = new Ellipse {
             Width=size, Height=size, Stroke=stroke, StrokeThickness=1.2,
-            IsHitTestVisible=false, UseLayoutRounding=false, Tag=tag, Opacity=opacity, ZIndex=2,
+            IsHitTestVisible=false, UseLayoutRounding=false, Tag=tag, Opacity=opacity, ZIndex=SurveyMarkerLayer,
             Clip=SurveyMarkerClip(position,size)
         };
         Canvas.SetLeft(marker, Screen(position.X)-size/2);

@@ -44,6 +44,7 @@ public partial class MainWindow
 
     private void TouchPressed(object? sender, PointerPressedEventArgs e)
     {
+        if(e.Source is Visual source && source.GetSelfAndVisualAncestors().Any(v=>v is Avalonia.Controls.TextBox or ScrollBar)) return;
         if(e.Pointer.Type != PointerType.Touch) {
             if(touchLabels) {
                 touchLabels=false;
@@ -52,10 +53,8 @@ public partial class MainWindow
             PanStart(sender!,e);
             return;
         }
-        if(e.Source is Visual source && (source is Avalonia.Controls.TextBox or ScrollBar ||
-            source.GetVisualAncestors().Any(v=>v is Avalonia.Controls.TextBox or ScrollBar))) return;
-
         rulerPointer=null;
+        SetHoveredSurveyPoint(null);
         UpdateRulerPointer();
         UpdateCoverageHover();
         e.Handled=true;

@@ -54,4 +54,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "RFloor v$VERSION" \
-            --notes "Shared editor, surveys, heatmaps and settings on Windows, Linux and Android. Phone controls support touch drawing, pinch zoom and collapsible panels. All packages include .NET and iperf3. Android APK uses a persistent release signing key. Packages passed shared editor/coverage checks, Linux startup and live network checks, and Android emulator editor/native iperf3 checks. See SHA256SUMS.txt for checksums."
+            --notes "Improves tape mode scrolling, adds diagonal hatching to plan primitives, and keeps survey and router markers above plan objects. Survey previews match placed markers and stop at wall and doorway faces. Dialogs use consistent action placement and an orange accent. Packages include .NET and iperf3. See SHA256SUMS.txt for package checksums."

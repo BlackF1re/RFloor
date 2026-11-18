@@ -15,6 +15,7 @@
   <Style Selector="Button:pressed /template/ Border#ButtonSurface"><Setter Property="Opacity" Value="0.65"/></Style>
   <Style Selector="Button:disabled /template/ Border#ButtonSurface"><Setter Property="Opacity" Value="0.38"/></Style>
   <Style Selector="Button:focus-visible /template/ Border#ButtonSurface"><Setter Property="BorderBrush" Value="#C45100"/><Setter Property="BoxShadow" Value="0 0 0 1 #C45100"/></Style>
+  <Style Selector="Button.dialogAccent"><Setter Property="Background" Value="{DynamicResource WorkspaceAccentBrush}"/><Setter Property="Foreground" Value="White"/></Style>
   <Style Selector="ToggleButton.modeSwitch">
    <Setter Property="CornerRadius" Value="14"/><Setter Property="Background" Value="#F2F2F2"/>
    <Setter Property="Template"><ControlTemplate><Border Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}"><ContentPresenter Name="ModeContent" Content="{TemplateBinding Content}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center"/></Border></ControlTemplate></Setter>
@@ -66,5 +67,8 @@
   <Style Selector="DockPanel#CanvasDock Button"><Setter Property="Height" Value="28"/><Setter Property="Padding" Value="10,0"/><Setter Property="Margin" Value="0,0,4,0"/></Style>
   <Style Selector="DockPanel#CanvasDock ComboBox"><Setter Property="MinWidth" Value="64"/></Style>
  </Application.Styles>
- <Application.Resources><Color x:Key="SystemAccentColor">#C45100</Color></Application.Resources>
+ <Application.Resources>
+  <Color x:Key="SystemAccentColor">#C45100</Color>
+  <SolidColorBrush x:Key="WorkspaceAccentBrush" Color="{DynamicResource SystemAccentColor}" />
+ </Application.Resources>
 </Application>

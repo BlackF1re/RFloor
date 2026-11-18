@@ -7,6 +7,6 @@ artifacts/
 **/bin/
 **/obj/
 
-build/native/
-examples/Моя комната.rfplan
+/build/
 /AGENTS.md
+examples/Моя комната.rfplan

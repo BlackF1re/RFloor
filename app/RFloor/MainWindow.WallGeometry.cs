@@ -4,7 +4,7 @@ public partial class MainWindow {
     private const double SelectionOpacity=.45;
     private const double WallStroke=5, OpeningStroke=1;
     private const double WallFaceTolerance=1e-8;
-    private WallFace[][]? wallFaces;
+    private WallFace[][]? wallFaces, openingFaces;
     private ILookup<(bool Vertical, double Axis), JsonObject>? roomJunctionWalls;
     private readonly record struct WallFace(Point A, Point B, Vector Inward)
     {
@@ -15,16 +15,18 @@ public partial class MainWindow {
     {
         if (wallFaces is not null) return wallFaces;
         var walls = Walls.OfType<JsonObject>().Where(w => Length(w)>WallFaceTolerance).ToArray();
-        return wallFaces = walls.Select(wall =>
+        return wallFaces = walls.Select(wall=>GeometryFaces(WallGeometry(wall,walls))).ToArray();
+    }
+
+    private WallFace[] GeometryFaces(Geometry geometry)
+    {
+        var edges = GeometryEdges(geometry).ToArray();
+        var center = new Point(edges.Average(edge=>edge.A.X),edges.Average(edge=>edge.A.Y));
+        return edges.Select(edge =>
         {
-            var edges = GeometryEdges(WallGeometry(wall,walls)).ToArray();
-            var center = new Point(edges.Average(edge=>edge.A.X),edges.Average(edge=>edge.A.Y));
-            return edges.Select(edge =>
-            {
-                Vector axis = edge.B-edge.A;
-                var normal = new Vector(-axis.Y,axis.X)/axis.Length;
-                return new WallFace(edge.A,edge.B,Vectors.Dot(center-edge.A,normal)>0?normal:-normal);
-            }).ToArray();
+            Vector axis = edge.B-edge.A;
+            var normal = new Vector(-axis.Y,axis.X)/axis.Length;
+            return new WallFace(edge.A,edge.B,Vectors.Dot(center-edge.A,normal)>0?normal:-normal);
         }).ToArray();
     }
 
@@ -79,9 +81,11 @@ public partial class MainWindow {
         Point center=new(Number(room["x"])+Number(room["w"])/2,Number(room["y"])+Number(room["h"])/2);
         return Vectors.Dot(normal,center-a)>0?-normal:normal;
     }
-    private Geometry OpeningGeometry(JsonObject opening) {
+    private Geometry OpeningGeometry(JsonObject opening) => OpeningShape(opening,OpeningStroke);
+
+    private Geometry OpeningShape(JsonObject opening,double thickness) {
         Vector offset=RoomOutward(opening)*(WallStroke/2);
-        return SurfaceLine(new Point(Screen(End(opening,"a").X)+offset.X,Screen(End(opening,"a").Y)+offset.Y),new Point(Screen(End(opening,"b").X)+offset.X,Screen(End(opening,"b").Y)+offset.Y),OpeningStroke);
+        return SurfaceLine(new Point(Screen(End(opening,"a").X)+offset.X,Screen(End(opening,"a").Y)+offset.Y),new Point(Screen(End(opening,"b").X)+offset.X,Screen(End(opening,"b").Y)+offset.Y),thickness);
     }
     private Geometry WallGeometry(JsonObject wall,IReadOnlyList<JsonObject> walls) {
         Point a=End(wall,"a"),b=End(wall,"b");

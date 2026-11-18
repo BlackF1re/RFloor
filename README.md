@@ -35,9 +35,9 @@ dotnet run --project app/RFloor.Desktop
 dotnet run --project tests/RFloor.Checks -c Release
 ```
 
-Prepare iperf3 before publishing: `./build/Prepare-Iperf.ps1` on Windows, `bash build/iperf/build.sh linux` on Linux. Publish the desktop host with `dotnet publish app/RFloor.Desktop -c Release -r win-x64 --self-contained true -o artifacts/publish` (or `win-arm64`, `linux-x64`, `linux-arm64`). Build Linux dependencies on the target architecture.
+Prepare iperf3 before publishing: `./tools/Prepare-Iperf.ps1` on Windows, `bash tools/iperf/build.sh linux` on Linux. Publish the desktop host with `dotnet publish app/RFloor.Desktop -c Release -r win-x64 --self-contained true -o artifacts/publish` (or `win-arm64`, `linux-x64`, `linux-arm64`). Build Linux dependencies on the target architecture.
 
-For Android, run `dotnet workload install android`, set `ANDROID_NDK_HOME` to NDK 28.2.13676358, run `bash build/iperf/build.sh android` on Linux, then `dotnet publish app/RFloor.Android -c Release`. The native client is linked into the APK for ARM64 and x64; it does not execute a downloaded binary. Publishing fails if bundled iperf3 is missing. The upstream source archive is version-pinned and SHA-256 verified.
+For Android, run `dotnet workload install android`, set `ANDROID_NDK_HOME` to NDK 28.2.13676358, run `bash tools/iperf/build.sh android` on Linux, then `dotnet publish app/RFloor.Android -c Release`. The native client is linked into the APK for ARM64 and x64; it does not execute a downloaded binary. Publishing fails if bundled iperf3 is missing. The upstream source archive is version-pinned and SHA-256 verified.
 
 GitHub **Build** runs shared editor, touch, layout, document, localization and coverage checks, Linux startup and live ICMP/iperf3 checks, and Android emulator editor/native network checks. It produces Windows x64/ARM64 installers and ZIPs, Linux x64/ARM64 tarballs, and an Android APK. Verification code is excluded from release APKs. **Build and Release** publishes these artifacts and SHA-256 checksums after all builds pass. `Directory.Build.props` defines the version. Android signing uses repository secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD` (PKCS12, alias `rfloor`); pull requests without secrets use development signing. Windows installers are unsigned until a publisher certificate is configured.
 

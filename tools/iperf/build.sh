@@ -19,7 +19,7 @@ if [[ "$mode" == android ]]; then
     make -j2 -C src libiperf.la
     output="$root/build/native/android/$abi"
     mkdir -p "$output"
-    "$toolchain/${target}26-clang" -shared -O2 -fPIC -Wl,-z,max-page-size=16384 -I./src -I"$source/src" "$root/build/iperf/android-client.c" src/.libs/libiperf.a -lm -o "$output/librfloor_iperf.so"
+    "$toolchain/${target}26-clang" -shared -O2 -fPIC -Wl,-z,max-page-size=16384 -I./src -I"$source/src" "$root/tools/iperf/android-client.c" src/.libs/libiperf.a -lm -o "$output/librfloor_iperf.so"
     "$toolchain/llvm-strip" "$output/librfloor_iperf.so"
     popd
   done

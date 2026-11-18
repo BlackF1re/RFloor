@@ -107,8 +107,9 @@ public partial class MainWindow
         Tab(L("Подписи"),labels);
         tabs.SelectedIndex=selectedTab;
         var error=new TextBlock {Foreground=Brushes.Firebrick,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(20,12,20,0)};
-        var apply=new Button {Content=L("Применить"),MinWidth=110,IsDefault=true};var cancel=new Button {Content=L("Отмена"),MinWidth=90,IsCancel=true};
-        var buttons=new StackPanel {Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(20,12,20,16)};buttons.Children.Add(cancel);buttons.Children.Add(apply);apply.Margin=new Thickness(8,0,0,0);
+        var apply=new Button {Content=L("Применить"),IsDefault=true};var cancel=new Button {Content=L("Отмена"),IsCancel=true};
+        var buttons=OverlayDialog.Actions(cancel,apply);
+        buttons.Margin=new Thickness(20,12,20,16);
         var footer=new StackPanel();footer.Children.Add(error);footer.Children.Add(buttons);DockPanel.SetDock(footer,Dock.Bottom);
         var root=new DockPanel();root.Children.Add(footer);root.Children.Add(tabs);
         var dialog=new OverlayDialog(this) {Title=L("Настройки RFloor"),Width=780,Height=Math.Min(780,900-50),MinWidth=0,MinHeight=0,Content=root,Background=Brushes.White};

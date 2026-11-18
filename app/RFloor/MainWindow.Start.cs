@@ -61,13 +61,15 @@ public partial class MainWindow
         var error=new TextBlock {Foreground=Brushes.Firebrick,TextWrapping=TextWrapping.Wrap};
         var create=new Button {Content=L("Создать"),IsDefault=true};
         var cancel=new Button {Content=L("Отмена"),IsCancel=true};
-        var buttons=new StackPanel {Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,16,0,0)};
-        buttons.Spacing=8;buttons.Children.Add(cancel);buttons.Children.Add(create);
-        var content=new StackPanel {Margin=new Thickness(16,4,16,12),Spacing=4,MaxWidth=400};
+        var buttons=OverlayDialog.Actions(cancel,create);
+        var content=new StackPanel {Spacing=4};
         content.Children.Add(field);
         content.Children.Add(new TextBlock {Text=L("Расширение .rfplan добавится автоматически"),Foreground=Brushes.Gray,TextWrapping=TextWrapping.Wrap});
-        content.Children.Add(error);content.Children.Add(buttons);
-        var dialog=new OverlayDialog(this) {Title=L("Создать план"),Content=new ScrollViewer {Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto},ShowCloseButton=false,SizeToContent=SizeToContent.WidthAndHeight,};
+        content.Children.Add(error);
+        DockPanel.SetDock(buttons,Dock.Bottom);
+        var body=new DockPanel {Margin=new Thickness(16,4,16,12),MaxWidth=400,
+            Children={buttons,new ScrollViewer {Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto}}};
+        var dialog=new OverlayDialog(this) {Title=L("Создать план"),Content=body,ShowCloseButton=false,SizeToContent=SizeToContent.WidthAndHeight};
         cancel.Click+=(_,_)=>dialog.Cancel();
         field.KeyDown+=(_,e)=>{if(e.Key==Key.Enter){create.RaiseEvent(new RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));e.Handled=true;}};
         string? name=null;

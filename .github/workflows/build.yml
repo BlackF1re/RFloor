@@ -32,13 +32,13 @@ jobs:
       - name: Prepare Windows iperf3
         if: matrix.os == 'windows'
         shell: pwsh
-        run: ./build/Prepare-Iperf.ps1
+        run: ./tools/Prepare-Iperf.ps1
       - name: Prepare Linux dependencies and iperf3
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libfontconfig1 libice6 libsm6 libx11-6 libxrandr2 libxi6 iw iputils-ping xvfb
-          bash build/iperf/build.sh linux
+          bash tools/iperf/build.sh linux
           build/native/linux/iperf3 -s -D
           echo "$GITHUB_WORKSPACE/build/native/linux" >> "$GITHUB_PATH"
       - name: Check shared editor, documents, localization and coverage
@@ -68,17 +68,17 @@ jobs:
           Compress-Archive -Path "$publish/*" -DestinationPath "$output/RFloor-$env:RFLOOR_VERSION-windows-${{ matrix.arch }}-portable.zip"
           $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
           if (-not (Test-Path $compiler)) { choco install innosetup --yes --no-progress }
-          & $compiler "/DAppVersion=$env:RFLOOR_VERSION" "/DAppArch=${{ matrix.arch }}" "/DPublishDir=$publish" "/DOutputDir=$output" build/windows/RFloor.iss
+          & $compiler "/DAppVersion=$env:RFLOOR_VERSION" "/DAppArch=${{ matrix.arch }}" "/DPublishDir=$publish" "/DOutputDir=$output" tools/windows/RFloor.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
       - name: Package Linux portable application
         if: matrix.os == 'linux'
         run: |
-          cp build/linux/AppRun build/linux/RFloor.desktop artifacts/publish/
+          cp tools/linux/AppRun tools/linux/RFloor.desktop artifacts/publish/
           cp app/RFloor/Assets/RFloor.png artifacts/publish/rfloor.png
           chmod +x artifacts/publish/AppRun artifacts/publish/RFloor.Desktop artifacts/publish/iperf3/iperf3
           artifacts/publish/iperf3/iperf3 --version
           set +e
-          timeout 8s xvfb-run -a artifacts/publish/RFloor.Desktop > artifacts/linux-startup.log 2>&1
+          timeout 8s xvfb-run -a artifacts/publish/AppRun > artifacts/linux-startup.log 2>&1
           status=$?
           set -e
           cat artifacts/linux-startup.log
@@ -108,7 +108,7 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
       - name: Build bundled native iperf3
-        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" bash build/iperf/build.sh android
+        run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" bash tools/iperf/build.sh android
       - name: Publish standalone APK
         env:
           RFLOOR_VERSION: ${{ inputs.version }}
@@ -152,7 +152,7 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash build/android/check-startup.sh
+          script: bash tools/android/check-startup.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

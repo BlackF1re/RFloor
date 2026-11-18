@@ -225,7 +225,6 @@ public partial class MainWindow
         }
     }
 
-    private Border? hoveredSurveyPoint;
     private readonly SolidColorBrush coverageHoverColor=new();
 
     private void UpdateCoverageHover()

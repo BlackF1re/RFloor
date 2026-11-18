@@ -46,6 +46,21 @@ public partial class MainWindow
         }
         return bounds.Contains(point);
     }
+    private static readonly IBrush SolidHatch=DecorationHatch(new SolidColorBrush(Color.FromRgb(212,212,212)),Brushes.Gray);
+    private static readonly IBrush ClearHatch=DecorationHatch(Brushes.Transparent,new SolidColorBrush(Color.FromArgb(100,128,128,128)));
+    private static readonly IBrush HighlightedSolidHatch=DecorationHatch(Brushes.DarkOrange,Brushes.SaddleBrown);
+    private static readonly IBrush HighlightedClearHatch=DecorationHatch(Brushes.Transparent,Brushes.DarkOrange);
+
+    private static DrawingBrush DecorationHatch(IBrush background,IBrush stripe)
+    {
+        var bounds=new Rect(0,0,7,7);
+        var tile=new DrawingGroup();
+        tile.Children.Add(new GeometryDrawing {Brush=background,Geometry=new RectangleGeometry(bounds)});
+        tile.Children.Add(new GeometryDrawing {Pen=new Pen(stripe,.65),Geometry=Avalonia.Media.Geometry.Parse("M 0,1 L 1,0 M 1,7 L 7,1")});
+        var region=new RelativeRect(bounds,RelativeUnit.Absolute);
+        return new DrawingBrush {TileMode=TileMode.Tile,SourceRect=region,DestinationRect=region,Drawing=tile};
+    }
+
     private void DrawDecoration(JsonObject obj,Vector delta,IBrush? accent=null,double opacity=1,string? tag=null)
     {
         var bounds=DecorationBounds(obj);double w=bounds.Width*Scale,h=bounds.Height*Scale;
@@ -59,8 +74,8 @@ public partial class MainWindow
             if(accent is null)opacity=labelOpacity;
         }
         var stroke=accent??Brushes.Gray;
-        IBrush? fill=accent??new SolidColorBrush(Color.FromRgb(212,212,212));
-        if(obj["filled"]?.GetValue<bool>()==false)fill=null;
+        bool filled=obj["filled"]?.GetValue<bool>()!=false;
+        IBrush fill=accent is null ? (filled?SolidHatch:ClearHatch) : (filled?HighlightedSolidHatch:HighlightedClearHatch);
         FrameworkElement visual=kind switch {
             "router"=>new Image {Source=RouterImage(accent),Width=w,Height=h,
                 Clip=RouterClip(new Rect(bounds.Position+delta,bounds.Size))},
@@ -70,7 +85,9 @@ public partial class MainWindow
             _=>new Rectangle {Width=w,Height=h,RadiusX=obj["kind"]?.ToString()=="roundRect"?4:0,RadiusY=obj["kind"]?.ToString()=="roundRect"?4:0,Stroke=stroke,StrokeThickness=1.5,Fill=fill}
         };
         var host=new Canvas {Width=Math.Max(w,1),Height=Math.Max(h,1),IsHitTestVisible=false,Tag=(object?)tag??obj,Opacity=opacity};host.Children.Add(visual);
-        Canvas.SetLeft(host,Screen(bounds.X+delta.X));Canvas.SetTop(host,Screen(bounds.Y+delta.Y));Ui.SetZIndex(host,accent is null?90:95);Plan.Children.Add(host);
+        Canvas.SetLeft(host,Screen(bounds.X+delta.X));Canvas.SetTop(host,Screen(bounds.Y+delta.Y));
+        Ui.SetZIndex(host,kind=="router"?SurveyMarkerLayer-1:kind=="text"?100:accent is null?90:95);
+        Plan.Children.Add(host);
     }
     private void DrawDecorations()
     {

@@ -80,7 +80,9 @@ internal static class EditorLogic
         window.FindControl<Avalonia.Controls.Button>("ClearObjectSearch")!.RaiseEvent(new RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         Require(!plan.Children.OfType<Control>().Any(v=>Equals(v.Tag,"search-highlight")),"Clearing search left highlights.");
-        Require(((Avalonia.Controls.Shapes.Shape)primitiveHost.Children[0]).Fill is null,"Outline primitive is filled");
+        Require(((Avalonia.Controls.Shapes.Shape)primitiveHost.Children[0]).Fill is DrawingBrush { Drawing: DrawingGroup outline }
+            && outline.Children[0] is GeometryDrawing { Brush: ISolidColorBrush { Color.A: 0 } }
+            && outline.Children[1] is GeometryDrawing { Pen.Thickness: < 1 },"Outline primitive lacks fine hatching over a transparent background");
         var aligned=((Point A,Point B))Call("AlignConstructionLine",new Point(1,1.2),new Point(1,1.8),3d)!;
         Near(aligned.A.X,1-1.5/scale,"Wall construction overlaps a primitive surface");
         var entryType=type.GetNestedType("ObjectEntry",BindingFlags.NonPublic)!;
@@ -95,7 +97,9 @@ internal static class EditorLogic
             var obj=geometry["decorations"]!.AsArray().Last()!.AsObject();
             var host=plan.Children.OfType<Canvas>().First(v=>ReferenceEquals(v.Tag,obj));
             var shape=(Avalonia.Controls.Shapes.Shape)host.Children[0];
-            if(kind!="line")Require(shape.Fill is Avalonia.Media.SolidColorBrush fill && fill.Color.A==255,"Filled primitive is not opaque");
+            if(kind!="line")Require(shape.Fill is DrawingBrush { Drawing: DrawingGroup filled }
+                && filled.Children[0] is GeometryDrawing { Brush: ISolidColorBrush { Color.A: 255 } }
+                && filled.Children[1] is GeometryDrawing { Pen.Thickness: < 1 },"Filled primitive lacks fine hatching over an opaque background");
             if(shape is Avalonia.Controls.Shapes.Rectangle rectangle)Near(rectangle.RadiusX,kind=="rect"?0:4,"Rectangle corner style is wrong");
             Call("DrawConstruction",new Point(10,10),new Point(12,13));
             if(kind is "rect" or "roundRect")Require(plan.Children.OfType<Border>().Any(v=>v.Child is TextBlock t && t.Text=="2 м × 3 м = 6 м²"),"Rectangle preview lacks dimensions and area");
@@ -197,6 +201,11 @@ internal static class EditorLogic
             !joined["walls"]!.AsArray().Contains(common),"The shared wall is still present underneath the opening");
         var door=joined["doors"]![0]!.AsObject();
         Near(((Geometry)Call("OpeningGeometry",door)!).Bounds.Center.X, 50+4*scale+2.5,"Shared opening is off the wall center");
+        Call("DrawMeasurementRays",new Point(2,1.5));
+        var doorRay=canvas.Children.OfType<Avalonia.Controls.Shapes.Line>().Single(v=>Equals(v.Tag,"point-preview") && v.EndPoint.X>v.StartPoint.X);
+        Near(doorRay.EndPoint.X,50+4*scale,"The preview ray crossed the inner face of the doorway");
+        Near(doorRay.StrokeThickness*((ScaleTransform)((LayoutTransformControl)window.FindControl<Control>("ZoomHost")!).LayoutTransform!).ScaleX,
+            1,"The preview ray changed thickness with zoom");
         var roomEntry=objects.Items.Cast<object>().Single(x=>ReferenceEquals(x.GetType().GetProperty("Item")!.GetValue(x),secondRoom));
         var doorEntry=objects.Items.Cast<object>().Single(x=>ReferenceEquals(x.GetType().GetProperty("Item")!.GetValue(x),door));
         objects.SelectedItem=roomEntry;

@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$destination = Join-Path $PSScriptRoot 'native/windows/iperf3'
+$destination = Join-Path $PSScriptRoot '../build/native/windows/iperf3'
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('rfloor-iperf-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $temporary | Out-Null
 try {

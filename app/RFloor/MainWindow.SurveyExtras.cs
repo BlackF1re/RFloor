@@ -52,7 +52,10 @@ public partial class MainWindow
     private void Thresholds_Click(object sender,RoutedEventArgs e)=>ShowPreferences(2);
     private void DrawMeasurementRays(Point p)
     {
-        var walls=WallFaces();
+        openingFaces ??= Doors.OfType<JsonObject>().Where(door=>Length(door)>WallFaceTolerance)
+            .Select(door=>GeometryFaces(OpeningShape(door,WallStroke))).ToArray();
+        var walls=WallFaces().Concat(openingFaces);
+        double stroke=ProjectionStroke/PlanZoom.ScaleX;
         foreach (var d in new[] { new Vector(1,0), new Vector(0,1), new Vector(-1,0), new Vector(0,-1) })
         {
             double nearest = double.PositiveInfinity;
@@ -62,11 +65,11 @@ public partial class MainWindow
             if (nearest>WallFaceTolerance)
             {
                 Plan.Children.Add(new Line { X1=Screen(p.X),Y1=Screen(p.Y),X2=Screen(end.X),Y2=Screen(end.Y),
-                    Stroke=Brushes.DarkOrange,StrokeThickness=1.5,StrokeLineCap=PenLineCap.Flat,
-                    StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> { 3,2 },IsHitTestVisible=false,Tag="point-preview" });
+                    Stroke=Brushes.DarkOrange,StrokeThickness=stroke,StrokeLineCap=PenLineCap.Flat,
+                    StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> { 4,4 },IsHitTestVisible=false,Tag="point-preview",ZIndex=105 });
             }
             var label=new TextBlock { Text=L("{0:0.##} м", nearest),Background=Brushes.White,Foreground=Brushes.DarkOrange,
-                IsHitTestVisible=false,Tag="point-preview",ZIndex=2 };
+                IsHitTestVisible=false,Tag="point-preview",ZIndex=106 };
             label.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));
             var middle=p+d*(nearest/2);
             double x=Screen(middle.X),y=Screen(middle.Y);

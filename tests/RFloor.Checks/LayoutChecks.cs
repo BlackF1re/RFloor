@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Raw;
@@ -75,6 +76,10 @@ internal static class LayoutChecks {
         Require(buttons.Length==2,"Settings action buttons are missing.");
         var apply=buttons.Single(b=>b.IsDefault);var cancel=buttons.Single(b=>b.IsCancel);
         Require(apply.TranslatePoint(default,dialog)!.Value.X>cancel.TranslatePoint(default,dialog)!.Value.X,"Apply must be the rightmost action.");
+        var close=dialog.GetVisualParent()!.GetVisualDescendants().OfType<Button>().Single(b=>Equals(b.Content,"×"));
+        var switchColor=(view.FindControl<Border>("ModeThumb")!.Background as ISolidColorBrush)?.Color;
+        Require(switchColor is not null && (apply.Background as ISolidColorBrush)?.Color==switchColor &&
+            (close.Background as ISolidColorBrush)?.Color==switchColor,"Apply and Close must use the mode switch accent.");
         cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Layout();
         Require(signal.IsChecked==originalSignal && ping.Text==originalPing,"Cancel did not roll back measurement settings.");
         Require(!view.GetVisualDescendants().Any(c=>c.GetType().Name=="OverlayDialog"),"Cancel did not close settings.");
@@ -137,6 +142,24 @@ internal static class LayoutChecks {
         Require(sample["geometry"]!["decorations"]!.AsArray().Count==decorations+1,"Construction did not commit on release.");
 
         Call("SetTool","tape");Layout();
+        viewport.AllowAutoHide=false;
+        viewport.Offset=new Vector(120,130);Layout();
+        var scrollBars=viewport.GetVisualDescendants().OfType<ScrollBar>().Where(bar=>bar.IsEffectivelyVisible).ToArray();
+        Require(scrollBars.Length==2,"Expected scrollbars on both axes.");
+        foreach(var bar in scrollBars)
+        {
+            var thumb=bar.GetVisualDescendants().OfType<Thumb>().Single(item=>item.IsEffectivelyVisible);
+            var start=thumb.TranslatePoint(new Point(thumb.Bounds.Width/2,thumb.Bounds.Height/2),host)!.Value;
+            var before=viewport.Offset;
+            var horizontal=bar.Orientation==Avalonia.Layout.Orientation.Horizontal;
+            var end=start+(horizontal?new Vector(20,0):new Vector(0,20));
+            host.MouseDown(start,MouseButton.Left);
+            host.MouseMove(end,RawInputModifiers.LeftMouseButton);
+            host.MouseUp(end,MouseButton.Left);Layout();
+            Require(horizontal?viewport.Offset.X>before.X:viewport.Offset.Y>before.Y,"Tape tool intercepted scrollbar dragging.");
+        }
+        Require(typeof(MainWindow).GetField("tapeStart",flags)!.GetValue(view) is null,"Dragging a scrollbar started a tape.");
+        viewport.Offset=default;Layout();
         Call("TapeClick",new Point(1,1));Call("TapeClick",new Point(2,1));Call("TapeClick",new Point(2,2));
         var tapes=plan.Children.OfType<Control>().Where(control=>Equals(control.Tag,"tape-overlay")).ToArray();
         host.MouseMove(At(350,300));Layout();

@@ -66,7 +66,9 @@ public partial class MainWindow
         if(entry.Kind=="decoration"){DrawDecoration(obj,delta,tint,opacity,tag);return;}
         if(entry.Kind=="point") {
             var position=new Point(Number(obj["x"])+delta.X,Number(obj["y"])+delta.Y);
-            Plan.Children.Add(CreatePointMarker(position, tint, tag, tag is HighlightTag or SearchHighlightTag?11:6, opacity));
+            bool selected=tag is HighlightTag;
+            Plan.Children.Add(CreatePointMarker(position, tint, tag,
+                selected || tag is SearchHighlightTag?SurveyFocusSize:SurveyMarkerSize, selected?1:opacity));
             return;
         }
         var walls=Walls.OfType<JsonObject>().ToList();
@@ -105,6 +107,7 @@ public partial class MainWindow
         foreach(var element in Plan.Children.OfType<FrameworkElement>())if(element.Tag is JsonObject obj) {
             element.IsVisible=!chosen.Contains(obj) || surveyMode && element is Ellipse;
         }
+        RefreshSurveyHoverRing();
     }
 
     private void DrawObjectLabels()

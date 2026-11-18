@@ -115,8 +115,16 @@ internal static class UnifiedDocument {
         Require(!badge.IsVisible,"Hover displayed an estimate outside the surveyed area.");
         MoveTo(OnMap(.3,.3));
         Require(!badge.IsVisible,"The interpolated badge obscured a measurement point's own tooltip.");
+        int RingCount(string tag)=>plan.Children.OfType<Avalonia.Controls.Shapes.Ellipse>().Count(v=>Equals(v.Tag,tag));
+        Require(RingCount("point-hover")==1,"The marker did not gain a ring on hover.");
         MoveTo(OnMap(.43,.37));
-        Require(badge.IsVisible,"Returning to the surveyed area did not restore the estimate.");
+        Require(badge.IsVisible && RingCount("point-hover")==0,"Leaving the marker should dismiss its ring and restore the estimate.");
+        void Click(Point at){host.MouseDown(at,MouseButton.Left);host.MouseUp(at,MouseButton.Left);Dispatcher.UIThread.RunJobs();}
+        Click(OnMap(.3,.3));MoveTo(OnMap(.43,.37));
+        Require(RingCount("selection-highlight")==1 && RingCount("point-hover")==0,"The selected marker lost its ring after the cursor left.");
+        Click(OnMap(.7,.3));MoveTo(OnMap(.43,.37));
+        Require(plan.Children.OfType<Avalonia.Controls.Shapes.Ellipse>().Single(v=>Equals(v.Tag,"selection-highlight")).Bounds.X >
+            (double)Call("Screen",x+w*.5)!,"The previous marker stayed selected after another marker was clicked.");
         MoveTo(new Point(2,2));
         Require(!badge.IsVisible,"Leaving the viewport left the hover badge visible.");
         MoveTo(OnMap(.43,.37));
