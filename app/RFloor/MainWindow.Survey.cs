@@ -104,7 +104,7 @@ public partial class MainWindow
     {
         if (SnapEnabled.IsChecked != true || PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) return point;
         double step = GridSize;
-        var gridPoint=new Point(Math.Round(point.X/step)*step, Math.Round(point.Y/step)*step);
+        var gridPoint=GridPosition(point);
         double range=Math.Min(step/2,6/(Scale*PlanZoom.ScaleX));
         double closest=range*range;
         var result=gridPoint;
@@ -318,7 +318,6 @@ public partial class MainWindow
             var position = new Point(Number(point["x"]), Number(point["y"]));
             var marker = CreatePointMarker(position, Brushes.DarkOrange, point, 6);
             var hit = new Border { Width=hitSize, Height=hitSize, Background=Brushes.Transparent, Tip=PointTooltip(point), UseLayoutRounding=false };
-            if (IsDragging(point)) marker.Opacity = 0;
             Canvas.SetLeft(hit, Screen(position.X)-hitSize/2);
             Canvas.SetTop(hit, Screen(position.Y)-hitSize/2);
             Plan.Children.Add(marker);

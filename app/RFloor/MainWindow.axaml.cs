@@ -145,6 +145,7 @@ public partial class MainWindow : SurfaceWindow
     {
         CommitInlineRename();
         wallFaces=null;
+        roomJunctionWalls=null;
         foreach (var (items, prefix) in new[] { (Rooms, L("Комната")), (Walls, L("Стена")), (Doors, L("Проём")), (Points, L("Точка")) })
             for (int i=0; i<items.Count; i++)
                 if (string.IsNullOrWhiteSpace(items[i]?["name"]?.GetValue<string>())) items[i]!["name"] = $"{prefix} {i+1}";
@@ -212,8 +213,7 @@ public partial class MainWindow : SurfaceWindow
     private void Objects_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (updating) return;
-        ClearSelectionHighlight();
-        UpdateObjectOpacity();
+        RefreshSelectionHighlight();
         DeleteButton.IsEnabled = Objects.SelectedItem is ObjectEntry;
         if (Objects.SelectedItems.Count>1) { PropertiesEditor.IsVisible=false; SelectionInfo.Text=surveyMode ? L("Выбрано точек: {0}", Objects.SelectedItems.Count) : L("Выбрано объектов: {0}. Ctrl — добавить или убрать объект; Shift и протягивание — рамка.", Objects.SelectedItems.Count); return; }
         if (Objects.SelectedItem is not ObjectEntry selected) { PropertiesEditor.IsVisible = false; SelectionInfo.Text = surveyMode ? L("Выберите точку для просмотра результатов") : L("Выберите объект для просмотра размеров"); return; }
@@ -273,9 +273,10 @@ public partial class MainWindow : SurfaceWindow
     private Point World(Point point, bool snap = true)
     {
         var p = new Point((point.X-origin)/Scale, (point.Y-origin)/Scale);
-        if (!snap || SnapEnabled.IsChecked != true || PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) return p;
+        if (!snap || !SnapActive || tool == "room") return p;
+        if (tool == "router") return SnapRouterPosition(p);
         if(SurfaceSnap(p) is Point surface)return surface;
-        double grid = GridSize; return new Point(Math.Round(p.X/grid)*grid, Math.Round(p.Y/grid)*grid);
+        return GridPosition(p);
     }
     private async void Plan_MouseDown(object sender, PointerPressedEventArgs e)
     {
@@ -354,6 +355,7 @@ public partial class MainWindow : SurfaceWindow
     {
         drawingStart = drawingEnd = null;
         ClearConstructionPreview();
+        if (tool == "room") (start, end) = SnapRoomCorners(start, end);
         if(tool is "wall" or "line")(start,end)=AlignConstructionLine(start,end,tool=="wall"?WallStroke:2);
         if(tool is "rect" or "roundRect" or "ellipse" or "line" or "text"){AddDecoration(start,end);if(tool!="text")RenderPlan();return;}
         if(tool=="door"){CutDrawnOpening(start,end);RenderPlan();return;}
@@ -415,8 +417,9 @@ public partial class MainWindow : SurfaceWindow
             foreach (var node in Walls) { var wall=node!.AsObject(); var hit=SegmentDistance(point,wall); if (hit.Distance < nearest) { nearest=hit.Distance; selected=wall; t=hit.T; } }
             if (selected is null) { Status.Text=L("Нажмите ближе к стене."); return; }
             double length=Length(selected), margin=.08;
-            if (length < width+2*margin) { Status.Text=L("На выбранном участке стены недостаточно места для проёма."); return; }
-            double half=width/(2*length), center=Math.Clamp(t,margin/length+half,1-margin/length-half);
+            var (before,after)=OpeningBay(selected,t);
+            if ((after-before)*length < width+2*margin) { Status.Text=L("На выбранном участке стены недостаточно места для проёма."); return; }
+            double half=width/(2*length), center=Math.Clamp(t,before+margin/length+half,after-margin/length-half);
             double ax=Number(selected["a"]!["x"]), ay=Number(selected["a"]!["y"]), bx=Number(selected["b"]!["x"]), by=Number(selected["b"]!["y"]);
             JsonObject At(double n) => Point(ax+(bx-ax)*n,ay+(by-ay)*n);
             Remember(); var first=selected.DeepClone().AsObject(); var second=selected.DeepClone().AsObject();

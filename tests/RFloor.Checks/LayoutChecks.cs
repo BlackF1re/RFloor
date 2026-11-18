@@ -56,6 +56,9 @@ internal static class LayoutChecks {
         var tabs=view.GetVisualDescendants().OfType<TabControl>().Single(t=>t.Classes.Contains("settingsTabs"));
         var dialog=(Control)tabs.GetVisualAncestors().First(c=>c.GetType().Name=="OverlayDialog");
         var size=dialog.Bounds.Size;
+        Require(tabs.TabStripPlacement==Dock.Left,"Settings navigation is not on the left.");
+        var tabItems=tabs.Items.OfType<TabItem>().ToArray();
+        Require(tabItems.Length==5 && tabItems[1].Bounds.Top>tabItems[0].Bounds.Top,"Settings tabs did not stack vertically.");
         foreach(var slider in dialog.GetVisualDescendants().OfType<Slider>()) {
             Require(slider.Bounds.Width>100 && slider.Bounds.Height>=24,"Slider has collapsed bounds.");
             Require(slider.GetVisualDescendants().OfType<Avalonia.Controls.RepeatButton>().All(b=>b.Padding.Left<10),"Ordinary button padding leaked into slider tracks.");
@@ -63,6 +66,7 @@ internal static class LayoutChecks {
         var signal=view.FindControl<CheckBox>("RunSignal")!;var originalSignal=signal.IsChecked;
         signal.IsChecked=!originalSignal;
         var ping=view.FindControl<TextBox>("PingCount")!;var originalPing=ping.Text;ping.Text="10";
+        tabs.SelectedIndex=4;Layout();
         var checks=dialog.GetVisualDescendants().OfType<CheckBox>().Where(c=>c.IsEffectivelyVisible).ToArray();
         Require(checks.Length>=3,"Settings lost checkboxes.");
         Require(checks.All(c=>c.GetVisualDescendants().OfType<Border>().Any()),"Checkbox templates are missing.");

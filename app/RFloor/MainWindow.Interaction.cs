@@ -87,13 +87,16 @@ public partial class MainWindow
         }
         if(item.Kind=="room") {
             if(!CanMove(item,delta))return;
+            bool hadWalls=HasRoomWalls(obj);
             Remember();string? id=obj["id"]?.ToString();
             var segments=Walls.Concat(Doors).Select(n=>n!.AsObject()).Where(v=>v["roomId"]?.ToString()==id).ToList();
             RetainSharedSegments(obj,segments.Select(v=>(End(v,"a")+delta,End(v,"b")+delta)));
             foreach(var p in Points.Select(n=>n!.AsObject()).Where(p=>Number(p["x"])>=Number(obj["x"]) && Number(p["x"])<=Number(obj["x"])+Number(obj["w"]) && Number(p["y"])>=Number(obj["y"]) && Number(p["y"])<=Number(obj["y"])+Number(obj["h"]))) {p["x"]=Number(p["x"])+delta.X;p["y"]=Number(p["y"])+delta.Y;}
             foreach(var seg in segments)
                 foreach(var end in new[]{"a","b"}) {seg[end]!["x"]=Number(seg[end]!["x"])+delta.X;seg[end]!["y"]=Number(seg[end]!["y"])+delta.Y;}
-            obj["x"]=Number(obj["x"])+delta.X;obj["y"]=Number(obj["y"])+delta.Y;dirty=true;RenderPlan();return;
+            obj["x"]=Number(obj["x"])+delta.X;obj["y"]=Number(obj["y"])+delta.Y;
+            if(hadWalls)CompleteRoomWalls(obj);
+            dirty=true;RenderPlan();return;
         }
         if(item.Kind=="decoration"){Remember();obj["x"]=Number(obj["x"])+delta.X;obj["y"]=Number(obj["y"])+delta.Y;dirty=true;RenderPlan();return;}
         bool segment = item.Kind is "wall" or "door";

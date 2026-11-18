@@ -14,9 +14,10 @@ public partial class MainWindow
         var parent=(Panel)MeasurementSettingsPanel.Parent;int index=parent.Children.IndexOf(MeasurementSettingsPanel);
         bool previousLoading=loadingSettings,accepted=false;loadingSettings=true;
         parent.Children.Remove(MeasurementSettingsPanel);MeasurementSettingsPanel.IsVisible=true;
-        var tabs=new TabControl {Classes={"settingsTabs"},HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalContentAlignment=VerticalAlignment.Stretch,Margin=new Thickness(16,16,16,0)};
-        ScrollViewer Wrap(UIElement content)=>new(){Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Padding=new Thickness(18)};
-        void Tab(string title,UIElement content)=>tabs.Items.Add(new TabItem {Header=title,Content=Wrap(content)});
+        var tabs=new TabControl {Classes={"settingsTabs"},TabStripPlacement=Dock.Left,HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalContentAlignment=VerticalAlignment.Stretch,Margin=compactLayout?new Thickness(8,10,8,0):new Thickness(16,16,16,0)};
+        if(compactLayout)tabs.Classes.Add("compact");
+        ScrollViewer Wrap(UIElement content)=>new(){Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Padding=new Thickness(compactLayout?8:18)};
+        void Tab(string title,UIElement content)=>tabs.Items.Add(new TabItem {Classes={"settingsPage"},Header=new TextBlock {Text=title,TextWrapping=TextWrapping.Wrap},Content=Wrap(content)});
         TextBlock Note(string text)=>new(){Text=text,TextWrapping=TextWrapping.Wrap,Foreground=Brushes.Gray,Margin=new Thickness(0,6,0,16)};
         var editor=new StackPanel();editor.Children.Add(new TextBlock {Text=L("Холст и навигация"),FontSize=20,FontWeight=FontWeights.SemiBold});
         editor.Children.Add(new TextBlock {Text=L("Язык интерфейса"),Margin=new Thickness(0,12,0,4)});
@@ -26,13 +27,8 @@ public partial class MainWindow
         editor.Children.Add(language);
         editor.Children.Add(Note(L("Настройки отображения сохраняются для приложения. Привязку можно временно отключить клавишей Shift. Режим линеек переключается также кнопкой в углу холста.")));
         var grid=new CheckBox {Content=L("Показывать сетку"),IsChecked=showGrid,Margin=new Thickness(0,0,0,12)};
-        var names=new CheckBox {Content=L("Показывать подписи объектов"),IsChecked=showObjectLabels,Margin=new Thickness(0,0,0,12)};
         var snap=new CheckBox {Content=L("Привязка к геометрии и сетке"),IsChecked=SnapEnabled.IsChecked,Margin=new Thickness(0,0,0,12)};
-        editor.Children.Add(grid);editor.Children.Add(names);editor.Children.Add(snap);
-        editor.Children.Add(new TextBlock {Text=L("Непрозрачность подписей")});
-        var opacity=new Slider {Minimum=.2,Maximum=1,Value=labelOpacity,TickFrequency=.05,IsSnapToTickEnabled=true,Margin=new Thickness(0,10,0,18)};editor.Children.Add(opacity);
-        var opacityValue=new TextBlock {Foreground=Brushes.Gray,Margin=new Thickness(0,0,0,12)};
-        void OpacityText()=>opacityValue.Text=$"{opacity.Value*100:0} %";OpacityText();opacity.ValueChanged+=(_,_)=>OpacityText();editor.Children.Add(opacityValue);
+        editor.Children.Add(grid);editor.Children.Add(snap);
         editor.Children.Add(new TextBlock {Text=L("Шаг масштабирования колёсиком")});
         var zoom=new Slider {Minimum=1.05,Maximum=1.5,Value=zoomFactor,TickFrequency=.05,IsSnapToTickEnabled=true,Margin=new Thickness(0,10,0,8)};editor.Children.Add(zoom);
         var zoomValue=new TextBlock {Foreground=Brushes.Gray,Margin=new Thickness(0,0,0,18)};
@@ -61,6 +57,54 @@ public partial class MainWindow
         }
         var reset=new Button {Content=L("Восстановить стандартные сочетания"),HorizontalAlignment=HorizontalAlignment.Left,Margin=new Thickness(0,12,0,0)};
         reset.Click+=(_,_)=>{foreach(var row in ShortcutDefaults)shortcutFields[row.Id].Text=row.Gesture;};bindings.Children.Add(reset);Tab(L("Клавиши"),bindings);
+        var labels=new StackPanel {Spacing=6};
+        labels.Children.Add(new TextBlock {Text=L("Подписи"),FontSize=20,FontWeight=FontWeights.SemiBold});
+        var names=new CheckBox {Content=new TextBlock {Text=L("Показывать подписи объектов"),TextWrapping=TextWrapping.Wrap},IsChecked=showObjectLabels};
+        labels.Children.Add(names);
+        var opacity=new Slider {Minimum=.2,Maximum=1,Value=labelOpacity,TickFrequency=.05,IsSnapToTickEnabled=true};
+        var opacityValue=new TextBlock {TextWrapping=TextWrapping.Wrap};
+        void OpacityText()=>opacityValue.Text=L("Непрозрачность подписей")+" · "+$"{opacity.Value*100:0} %";
+        OpacityText();
+        opacity.ValueChanged+=(_,_)=>OpacityText();
+        labels.Children.Add(opacityValue);
+        labels.Children.Add(opacity);
+        labels.Children.Add(new TextBlock {Text=L("Тип объекта"),Margin=new Thickness(0,10,0,0)});
+        var category=new ComboBox {ItemsSource=LabelRules.Select(r=>L(r.Title)).ToArray()};
+        labels.Children.Add(category);
+        var visible=new CheckBox {Content=new TextBlock {Text=L("Показывать по умолчанию"),TextWrapping=TextWrapping.Wrap}};
+        labels.Children.Add(visible);
+        labels.Children.Add(new TextBlock {Text=L("Формат подписи")});
+        var format=new TextBox {AcceptsReturn=true,TextWrapping=TextWrapping.Wrap,MaxLength=500,MinHeight=62,MaxHeight=120};
+        var tokens=Note("");
+        var fontFields=new LabelStyleFields();
+        labels.Children.Add(format);
+        labels.Children.Add(tokens);
+        labels.Children.Add(fontFields);
+        var pendingLabels=labelDefaults.DeepClone().AsObject();
+        LabelRule? currentRule=null;
+        void SaveLabelRule()
+        {
+            if(currentRule is null)return;
+            var options=new JsonObject();
+            if((visible.IsChecked==true)!=currentRule.Visible)options["visible"]=visible.IsChecked==true;
+            var typography=fontFields.Read();
+            if(typography!=StandardTypography(currentRule))options["typography"]=typography.ToJson();
+            if(!string.IsNullOrWhiteSpace(format.Text) && format.Text!=currentRule.Format)options["format"]=format.Text;
+            if(options.Count==0)pendingLabels.Remove(currentRule.Kind);
+            else pendingLabels[currentRule.Kind]=options;
+        }
+        category.SelectionChanged+=(_,_)=>{
+            if(category.SelectedIndex<0)return;
+            SaveLabelRule();
+            currentRule=LabelRules[category.SelectedIndex];
+            var options=pendingLabels[currentRule.Kind] as JsonObject;
+            visible.IsChecked=LabelFlag(options,"visible")??currentRule.Visible;
+            format.Text=LabelString(options,"format")??currentRule.Format;
+            tokens.Text=L("Поля шаблона")+" · "+currentRule.Tokens;
+            fontFields.Load(ReadLabelTypography(options?["typography"] as JsonObject,StandardTypography(currentRule)));
+        };
+        category.SelectedIndex=0;
+        Tab(L("Подписи"),labels);
         tabs.SelectedIndex=selectedTab;
         var error=new TextBlock {Foreground=Brushes.Firebrick,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(20,12,20,0)};
         var apply=new Button {Content=L("Применить"),MinWidth=110,IsDefault=true};var cancel=new Button {Content=L("Отмена"),MinWidth=90,IsCancel=true};
@@ -82,6 +126,8 @@ public partial class MainWindow
                 if(!ReferenceEquals(settings,measurementSettings))settings["surveyDefaults"]=measurementSettings;
                 settings["thresholds"]=colors;networkTimer.Interval=TimeSpan.FromSeconds(interval);
                 showGrid=grid.IsChecked==true;showObjectLabels=names.IsChecked==true;SnapEnabled.IsChecked=snap.IsChecked;labelOpacity=opacity.Value;zoomFactor=zoom.Value;rulerMode=rulers.SelectedIndex;shortcuts=changedBindings;
+                SaveLabelRule();
+                labelDefaults=pendingLabels;
                 if (language.SelectedItem is Localization.LanguagePack pack) Localization.SetLanguage(pack.Code);
                 SavePreferences();UpdateShortcutHints();dirty=true;accepted=true;dialog.Complete(true);
             }catch(FormatException ex){error.Text=ex.Message;}

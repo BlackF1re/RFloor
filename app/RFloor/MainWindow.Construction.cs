@@ -21,14 +21,42 @@ public partial class MainWindow
         constructionPreview.AddRange(Plan.Children.Skip(first));
     }
 
+    private IEnumerable<double> WallJunctions(Point start, Point end)
+    {
+        Vector axis=end-start;
+        foreach (var wall in Walls.OfType<JsonObject>())
+        {
+            Point a=End(wall,"a");
+            Vector other=End(wall,"b")-a;
+            double cross=Cross(axis,other);
+            if(Math.Abs(cross)<1e-8)continue;
+            double t=Cross(a-start,other)/cross;
+            double u=Cross(a-start,axis)/cross;
+            if(t>1e-6 && t<1-1e-6 && u>=-1e-6 && u<=1+1e-6)yield return t;
+        }
+    }
+
+    private (double Before,double After) OpeningBay(JsonObject wall,double at)
+    {
+        double before=0,after=1;
+        foreach(double joint in WallJunctions(End(wall,"a"),End(wall,"b")))
+        {
+            if(joint<=at)before=Math.Max(before,joint);
+            else after=Math.Min(after,joint);
+        }
+        return (before,after);
+    }
+
     private (JsonObject Wall, Point A, Point B)? DrawnOpening(Point start,Point end)
     {
         var wall=Walls.Select(n=>n!.AsObject()).OrderBy(w=>SegmentDistance(start,w).Distance).FirstOrDefault();
         if(wall is null || SegmentDistance(start,wall).Distance>.25)return null;
         Point a=End(wall,"a"),b=End(wall,"b");Vector axis=b-a;double length=axis.Length;
-        if(length<.31)return null;
-        double first=Math.Clamp(SegmentDistance(start,wall).T,.08/length,1-.08/length);
-        double last=Math.Clamp(SegmentDistance(end,wall).T,.08/length,1-.08/length);
+        double from=SegmentDistance(start,wall).T;
+        var (before,after)=OpeningBay(wall,from);
+        if((after-before)*length<.31)return null;
+        double first=Math.Clamp(from,before+.08/length,after-.08/length);
+        double last=Math.Clamp(SegmentDistance(end,wall).T,before+.08/length,after-.08/length);
         return (wall,a+axis*Math.Min(first,last),a+axis*Math.Max(first,last));
     }
     private void CutDrawnOpening(Point start,Point end)
@@ -52,8 +80,17 @@ public partial class MainWindow
             DrawConstructionParameters(start,end);return;
         }
         if(tool=="room") {
-            var rect=new Rectangle {Width=Math.Abs(end.X-start.X)*Scale+2*WallStroke,Height=Math.Abs(end.Y-start.Y)*Scale+2*WallStroke,Stroke=Brushes.DarkOrange,StrokeThickness=WallStroke,Opacity=SelectionOpacity,IsHitTestVisible=false};
-            Avalonia.Controls.Canvas.SetLeft(rect,Screen(Math.Min(start.X,end.X))-WallStroke);Avalonia.Controls.Canvas.SetTop(rect,Screen(Math.Min(start.Y,end.Y))-WallStroke);Plan.Children.Add(rect);
+            (start,end)=SnapRoomCorners(start,end);
+            var bounds=Rects.Between(start,end);
+            var room=new JsonObject {["x"]=bounds.X,["y"]=bounds.Y,["w"]=bounds.Width,["h"]=bounds.Height};
+            foreach (var (a,b) in RoomEdges(room))
+            {
+                Vector axis=b-a;
+                if (axis.Length<1e-8) continue;
+                Vector outward=new Vector(axis.Y,-axis.X)/axis.Length;
+                foreach (var (from,to) in UncoveredSegments(a,b))
+                    DrawSegmentHighlight(RoomWallGeometry(from,to,room,outward),default,SelectionOpacity,Brushes.DarkOrange,null);
+            }
         }
         else {
             if(tool=="door" && DrawnOpening(start,end) is {} span) {

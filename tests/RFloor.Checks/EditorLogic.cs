@@ -64,7 +64,7 @@ internal static class EditorLogic
         var search=window.FindControl<TextBox>("ObjectSearch")!;
         search.Text="КОМНАТА";
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
-        Require(plan.Children.OfType<Control>().Count(v=>Equals(v.Tag,"search-highlight"))==1,"Search did not match the room by name.");
+        Require(plan.Children.OfType<Control>().Count(v=>Equals(v.Tag,"search-highlight"))==4,"Search did not highlight the room walls.");
         window.FindControl<Avalonia.Controls.Button>("ClearObjectSearch")!.RaiseEvent(new RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         Require(!plan.Children.OfType<Control>().Any(v=>Equals(v.Tag,"search-highlight")),"Clearing search left highlights.");
@@ -96,16 +96,22 @@ internal static class EditorLogic
         var vector=(Avalonia.Media.DrawingImage)image.Source;
         var dot=(Avalonia.Media.GeometryDrawing)((Avalonia.Media.DrawingGroup)vector.Drawing).Children.Last();
         Near(dot.Geometry.Bounds.Width/1024*image.Width,2.5,"Router dot differs from measurement dot");
+        Require(!dot.Geometry.FillContains(dot.Geometry.Bounds.Center),"Router dot hides the grid crossing");
         Require(router["name"]?.ToString()=="Роутер","Router has no automatic name");
         var routerEntry=Activator.CreateInstance(entryType,["Роутер",router,"decoration"])!;
         Call("BeginInlineRename",routerEntry);((TextBox)Get("inlineNameEditor")!).Text="Router office";Call("CommitInlineRename");
         Require(router["name"]?.ToString()=="Router office","Router name cannot be edited");
         geometry["decorations"]!.AsArray().Remove(router);
         Call("AddRouter",new Point(4,1.5));
-        var wallRouter=geometry["decorations"]!.AsArray().Last()!;
+        var wallRouter=geometry["decorations"]!.AsArray().Last()!.AsObject();
         var wallImage=(Image)plan.Children.OfType<Canvas>().Single(v=>ReferenceEquals(v.Tag,wallRouter)).Children[0];
         Require(wallImage.Clip is Geometry clip && clip.FillContains(new Point(wallImage.Width/2-1,wallImage.Height/2)) &&
             !clip.FillContains(new Point(wallImage.Width/2+1,wallImage.Height/2)),"Router clip crossed the interior wall face.");
+        var wallRouterEntry=Activator.CreateInstance(entryType,["Роутер",wallRouter,"decoration"])!;
+        var routerDrag=(Vector)Call("AdjustDrag",wallRouterEntry,new Vector(.02,.24))!;
+        var routerGrid=(Point)Call("GridPosition",new Point(4,1.74))!;
+        Near(routerDrag.X,0,"Router dragged away from the wall face");
+        Near(1.5+routerDrag.Y,routerGrid.Y,"Router slid freely along the wall instead of stepping on the grid");
         geometry["decorations"]!.AsArray().Remove(wallRouter);
         Call("ZoomAt",100d,new Point(100,100),null);Near(((Avalonia.Media.ScaleTransform)((LayoutTransformControl)window.FindControl<Control>("ZoomHost")!).LayoutTransform).ScaleX,5,"Zoom cannot reach 500%");
         Call("ZoomAt",.2d,new Point(100,100),null);
@@ -141,11 +147,64 @@ internal static class EditorLogic
         bool rejected=false;try{normalize.Invoke(null,["Alt+F4"]);}catch(TargetInvocationException ex)when(ex.InnerException is FormatException){rejected=true;}
         Require(rejected,"Windows reserved shortcut was accepted");
         var canvas=(Canvas)window.FindControl<Control>("Plan");var labels=canvas.Children.OfType<Border>().Where(x=>x.Child is TextBlock && x.IsHitTestVisible).ToArray();
-        Require(labels.Length>=geometry["rooms"]!.AsArray().Count+geometry["walls"]!.AsArray().Count,"Object labels are missing");
+        Require(labels.Length==geometry["rooms"]!.AsArray().Count,"Walls must be unlabeled by default");
         Require(labels.All(x=>x.ZIndex==100 && x.Opacity>0 && x.Opacity<1),"Labels are not translucent and above objects");
         Require(labels.All(x=>x.CornerRadius.TopLeft>0),"Object labels must have rounded corners");
-        Require(labels.Any(x=>x.Child is TextBlock t && t.Text.Contains("4 м")),"Wall labels lack their length");
-        Console.WriteLine("Editor logic passed: physical tape surfaces and corners; multiple persistent tapes and individual deletion; unified modes, drafts and undo; inline rename; shortcut validation; rounded label layering. No windows were shown.");
+        var labelDefaults=(JsonObject)Get("labelDefaults")!;
+        labelDefaults["room"]=new JsonObject {["format"]="{area} / {width}",["typography"]=new JsonObject {["size"]=16,["italic"]=true}};
+        var currentRoom=Doc()["geometry"]!["rooms"]![0]!.AsObject();
+        var currentRoomEntry=Activator.CreateInstance(entryType,["Room",currentRoom,"room"])!;
+        var styled=Call("LabelText",currentRoomEntry) as TextBlock;
+        Require(styled is {Text:"12 м² / 4 м",FontSize:16,FontStyle:FontStyle.Italic},"Room label format or default typography was lost");
+        var currentWall=Doc()["geometry"]!["walls"]![0]!.AsObject();
+        currentWall["label"]=new JsonObject {["visible"]=true,["typography"]=new JsonObject {["size"]=18,["bold"]=true,["underline"]=true,["font"]="Inter"}};
+        var currentWallEntry=Activator.CreateInstance(entryType,["Wall",currentWall,"wall"])!;
+        styled=Call("LabelText",currentWallEntry) as TextBlock;
+        Require(Call("IsLabelVisible",currentWallEntry) is true && styled is {FontSize:18,FontWeight:FontWeight.Bold,TextDecorations:not null} &&
+            styled.FontFamily.Name=="Inter" && styled.Text.Contains("4 м"),"Object typography or wall visibility override was lost");
+
+        var fresh=(JsonObject)type.GetMethod("NewDocument",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;
+        Call("AddDocument",fresh,null);
+        Call("AddRoom_Click",window,new RoutedEventArgs());
+        Call("SetTool","room");
+        Call("FinishDrawing",new Point(8,3.08),new Point(4.09,-.03));
+        var joined=fresh["geometry"]!.AsObject();
+        var secondRoom=joined["rooms"]![1]!.AsObject();
+        Near(secondRoom["x"]!.GetValue<double>(),4,"Adjacent room missed the shared wall");
+        Near(secondRoom["y"]!.GetValue<double>(),0,"Adjacent room missed the start of the wall");
+        Near(secondRoom["h"]!.GetValue<double>(),3,"Adjacent room missed the end of the wall");
+        var joinedWalls=joined["walls"]!.AsArray().OfType<JsonObject>().ToList();
+        Require(joinedWalls.Count==7,"Rooms stored overlapping walls instead of sharing a single wall");
+        var joinedShapes=joinedWalls.Select(w=>(Geometry)Call("WallGeometry",w,joinedWalls)!).ToArray();
+        Require(joinedShapes.SelectMany((shape,i)=>joinedShapes.Skip(i+1).Select(other=>GeometryOps.IntersectionEmpty(shape,other))).All(clear=>clear),
+            "Wall material still overlaps at the joined corners");
+        var common=joinedWalls.Single(w=>w["a"]!["x"]!.GetValue<double>()==4 && w["b"]!["x"]!.GetValue<double>()==4);
+        Call("SetTool","door");
+        Call("FinishDrawing",new Point(4.02,1),new Point(4.02,2));
+        Require(joined["doors"]!.AsArray().Count==1 && joined["walls"]!.AsArray().Count==8 &&
+            !joined["walls"]!.AsArray().Contains(common),"The shared wall is still present underneath the opening");
+        var door=joined["doors"]![0]!.AsObject();
+        Near(((Geometry)Call("OpeningGeometry",door)!).Bounds.Center.X, 50+4*scale+2.5,"Shared opening is off the wall center");
+        var roomEntry=objects.Items.Cast<object>().Single(x=>ReferenceEquals(x.GetType().GetProperty("Item")!.GetValue(x),secondRoom));
+        var doorEntry=objects.Items.Cast<object>().Single(x=>ReferenceEquals(x.GetType().GetProperty("Item")!.GetValue(x),door));
+        objects.SelectedItem=roomEntry;
+        objects.SelectedItems!.Add(doorEntry);
+        var highlight=canvas.Children.OfType<Avalonia.Controls.Shapes.Path>().Where(v=>Equals(v.Tag,"selection-highlight")).ToArray();
+        Require(highlight.Length==6 && highlight.All(path=>path is {IsVisible:true,Opacity:.45} && Equals(path.Fill,Brushes.DarkOrange)),
+            "Multi-selection lost or duplicated the translucent room and opening geometry");
+        var partial=(JsonObject)type.GetMethod("NewDocument",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;
+        Call("AddDocument",partial,null);
+        Call("AddRoom_Click",window,new RoutedEventArgs());
+        Call("SetTool","room");
+        Call("FinishDrawing",new Point(4.06,0.7),new Point(8,2.2));
+        var partialWalls=partial["geometry"]!["walls"]!.AsArray().OfType<JsonObject>().ToList();
+        Require(partialWalls.Count==7 && partialWalls.Count(w=>w["a"]!["x"]!.GetValue<double>()==4 &&
+            w["b"]!["x"]!.GetValue<double>()==4)==1,"A partially shared wall was duplicated");
+        Call("SetTool","door");
+        Call("FinishDrawing",new Point(4,1),new Point(4,2.7));
+        var partialDoor=partial["geometry"]!["doors"]![0]!;
+        Near(partialDoor["b"]!["y"]!.GetValue<double>(),2.12,"Door crossed a return wall at a T-junction");
+        Console.WriteLine("Editor logic passed: shared walls, joined corners, openings, orange multi-selection, label styles, grid-aligned routers and persistent tapes.");
     }
 }
 

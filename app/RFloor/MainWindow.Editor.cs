@@ -88,6 +88,11 @@ public partial class MainWindow
             var start = new Point(Number(item.Item["x"]), Number(item.Item["y"]));
             return SnapSurveyPosition(start + delta) - start;
         }
+        if (item.Kind == "decoration" && item.Item["kind"]?.ToString() == "router")
+        {
+            var center = DecorationBounds(item.Item).Center;
+            return SnapRouterPosition(center + delta) - center;
+        }
         if (SnapEnabled.IsChecked == true && !PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) { double step=GridSize; delta=delta.WithX(Math.Round(delta.X/step)*step); delta=delta.WithY(Math.Round(delta.Y/step)*step); }
         if (item.Kind == "door") { Vector axis=End(item.Item,"b")-End(item.Item,"a"); if (axis.Length > 1e-8) { axis=axis/axis.Length; delta=axis*Vectors.Dot(axis,delta); } }
         if(SnapEnabled.IsChecked==true && !PointerContext.Modifiers.HasFlag(KeyModifiers.Shift))delta=SnapMovedSurface(item,delta);
@@ -122,7 +127,7 @@ public partial class MainWindow
                 foreach (var segment in group) EnsureSegmentFree(End(segment,"a")+delta,End(segment,"b")+delta,segment,group);
             }
             else if (item.Kind == "point") { double x=Number(obj["x"])+delta.X,y=Number(obj["y"])+delta.Y; EnsurePointFree(x,y,obj); if (!Rooms.Any(r=>x>=Number(r!["x"]) && x<=Number(r["x"])+Number(r["w"]) && y>=Number(r["y"]) && y<=Number(r["y"])+Number(r["h"]))) return false; }
-            else if (item.Kind == "door") { var bounds=OpeningBounds(obj); if (bounds is null) return false; Vector axis=End(obj,"b")-End(obj,"a"); axis=axis/axis.Length; if (Vectors.Dot(End(obj,"a")+delta-bounds.Value.Before,axis)<.08 || Vectors.Dot(bounds.Value.After-End(obj,"b")-delta,axis)<.08) return false; }
+            else if (item.Kind == "door") { var bounds=OpeningBounds(obj); if (bounds is null) return false; Vector axis=End(obj,"b")-End(obj,"a"); axis=axis/axis.Length; if (Vectors.Dot(End(obj,"a")+delta-bounds.Value.Before,axis)<.08 || Vectors.Dot(bounds.Value.After-End(obj,"b")-delta,axis)<.08 || WallJunctions(End(obj,"a")+delta-axis*.08,End(obj,"b")+delta+axis*.08).Any()) return false; }
             return true;
         }
         catch (FormatException) { return false; }
@@ -159,7 +164,7 @@ public partial class MainWindow
     {
         foreach(var control in dragPreview) Plan.Children.Remove(control);
         dragPreview.Clear();
-        if (dragStart is null || dragItem is not ObjectEntry item) return true;
+        if (dragStart is null || dragItem is not ObjectEntry item || dragDelta.Length < 1e-8) return true;
         int firstPreview=Plan.Children.Count;
         bool valid=CanMove(item,dragDelta);
         var obj=item.Item; IBrush color=valid?Brushes.DarkOrange:Brushes.Crimson;

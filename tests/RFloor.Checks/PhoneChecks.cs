@@ -56,6 +56,10 @@ internal static class PhoneChecks {
             document["geometry"]!["decorations"]!.AsArray().Count==1,"Panning changed zoom or created an object.");
         viewport.Offset=default;Layout();
         Call("SetTool","select");Tap(At(150,280));
+        Require(Get("touchCard") is null,"Tapping an object with a hidden label opened its label.");
+        decoration["label"]=new JsonObject {["visible"]=true};
+        Call("RenderPlan");Layout();
+        Tap(At(150,280));
         Require(Get("touchCard") is not null,"Tapping an object did not open its label.");
         Tap(At(50,220));Require(Get("touchCard") is null,"Tapping away did not dismiss the label.");
         var oldFeedback=PlatformServices.LongPressFeedback;
@@ -148,7 +152,7 @@ internal static class PhoneChecks {
         Call("ShowPreferences",0);Layout();
         var tabs=view.GetVisualDescendants().OfType<TabControl>().Single(t=>t.Classes.Contains("settingsTabs"));
         var dialog=(Control)tabs.GetVisualAncestors().First(c=>c.GetType().Name=="OverlayDialog");
-        foreach(int index in new[]{0,1,2,3}){tabs.SelectedIndex=index;Layout();Require(dialog.Bounds.Width<=host.Bounds.Width-24 && dialog.Bounds.Height<host.Bounds.Height,"Phone settings exceed the screen.");}
+        foreach(int index in new[]{0,1,2,3,4}){tabs.SelectedIndex=index;Layout();Require(dialog.Bounds.Width<=host.Bounds.Width-24 && dialog.Bounds.Height<host.Bounds.Height,"Phone settings exceed the screen.");}
         host.Width=360;Layout();Require(dialog.Width<=312,"Open settings did not adapt to a narrower screen.");
         Require(view.HandleBack(),"Phone Back did not close settings.");Layout();
         host.Width=412;Layout();

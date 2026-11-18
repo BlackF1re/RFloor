@@ -24,9 +24,42 @@ public partial class MainWindow
             double N(string name)=>double.Parse(circle.Attribute(name)!.Value,CultureInfo.InvariantCulture);
             IBrush? B(string name)=>circle.Attribute(name) is {} attribute && attribute.Value!="none" ? tint??new SolidColorBrush(Color.Parse(attribute.Value)):null;
             var stroke=B("stroke");
-            group.Children.Add(new GeometryDrawing {Brush=B("fill"),Pen=stroke is null?null:new Pen(stroke,N("stroke-width")),Geometry=new EllipseGeometry(new Rect(N("cx")-N("r"),N("cy")-N("r"),2*N("r"),2*N("r")))});
+            var center = new Point(N("cx"),N("cy"));
+            var radius = N("r");
+            EllipseGeometry Circle(double r) => new(new Rect(center.X-r,center.Y-r,2*r,2*r));
+            Geometry shape = Circle(radius);
+            if (stroke is null)
+                shape = new GeometryGroup { FillRule=FillRule.EvenOdd, Children={shape,Circle(radius*.58)} };
+            group.Children.Add(new GeometryDrawing {Brush=B("fill"),Pen=stroke is null?null:new Pen(stroke,N("stroke-width")),Geometry=shape});
         }
         var image=new DrawingImage(group);routerImages[key]=image;return image;
+    }
+
+    private Point SnapRouterPosition(Point point)
+    {
+        if (!SnapActive) return point;
+        var grid = GridPosition(point);
+        var result = grid;
+        double range = 8 / (Scale * PlanZoom.ScaleX);
+        double closest = range * range;
+        foreach (var wall in WallFaces())
+        {
+            double length = wall.Max(face => ((Vector)(face.B - face.A)).Length);
+            foreach (var face in wall)
+            {
+                Vector axis = face.B - face.A;
+                if (axis.Length < length * .5 || face.Depth(point) > range) continue;
+                double position = Vectors.Dot(grid - face.A, axis) / axis.SquaredLength;
+                if (position < -WallFaceTolerance || position > 1 + WallFaceTolerance) continue;
+                double distance = ((Vector)(OnEdge(point, face.A, face.B) - point)).SquaredLength;
+                if (distance >= closest) continue;
+                var candidate = face.A + axis * position;
+                if (wall.Any(test => test.Depth(candidate) < -WallFaceTolerance)) continue;
+                result = candidate;
+                closest = distance;
+            }
+        }
+        return result;
     }
     private JsonObject RouterAt(Point center)=>new() {["id"]=Id(),["kind"]="router",["name"]=L("Роутер"),["x"]=center.X-RouterSize/Scale/2,["y"]=center.Y-RouterSize/Scale/2,["w"]=RouterSize/Scale,["h"]=RouterSize/Scale};
     private void AddRouter(Point center)

@@ -40,6 +40,7 @@ public partial class MainWindow
                 gridView=showGrid?Math.Clamp(prefs["gridView"]?.GetValue<int>()??0,0,1):2;
                 GridViewButton.Content=gridView switch {0=>"▦",1=>"⠿",_=>"□"};
                 labelOpacity=Math.Clamp(prefs["labelOpacity"]?.GetValue<double>()??.85,.2,1);zoomFactor=Math.Clamp(prefs["zoomFactor"]?.GetValue<double>()??1.25,1.05,1.5);
+                labelDefaults=prefs["labelDefaults"] as JsonObject ?? new JsonObject();
                 rulerMode=Math.Clamp(prefs["rulerMode"]?.GetValue<int>()??1,0,2);SnapEnabled.IsChecked=prefs["snap"]?.GetValue<bool>()??true;
                 if(prefs["shortcuts"] is JsonObject values) {
                     var candidate=new Dictionary<string,string>(shortcuts);
@@ -54,6 +55,7 @@ public partial class MainWindow
     {
         var prefs=new JsonObject { ["showGrid"]=showGrid,["showObjectLabels"]=showObjectLabels,["labelOpacity"]=labelOpacity,["zoomFactor"]=zoomFactor,["rulerMode"]=rulerMode,["snap"]=SnapEnabled.IsChecked==true,["shortcuts"]=new JsonObject(shortcuts.Select(x=>new KeyValuePair<string,JsonNode?>(x.Key,JsonValue.Create(x.Value)))) };
         prefs["gridView"]=gridView;
+        prefs["labelDefaults"]=labelDefaults.DeepClone();
         prefs["language"]=Localization.Language;
         string temp=PreferencesPath+".tmp";
         try {Directory.CreateDirectory(System.IO.Path.GetDirectoryName(PreferencesPath)!);File.WriteAllText(temp,prefs.ToJsonString());File.Move(temp,PreferencesPath,true);}

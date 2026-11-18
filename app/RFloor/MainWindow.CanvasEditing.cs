@@ -48,15 +48,12 @@ public partial class MainWindow
 
     private Point TapeSnap(Point p) => SnapEnabled.IsChecked==true && !PointerContext.Modifiers.HasFlag(KeyModifiers.Shift) ? SurfaceSnap(p)??p : p;
 
-    private bool IsDragging(JsonObject obj) => dragItem is {} item && dragStart is not null &&
-        (ReferenceEquals(item.Item,obj) || (item.Kind=="room" && obj["roomId"] is not null && obj["roomId"]!.ToString()==item.Item["id"]?.ToString()));
-
     private void DrawOpening(JsonObject opening)
     {
         var shape=new Avalonia.Controls.Shapes.Path {
             Data=OpeningGeometry(opening),
             Fill=Brushes.Gray, IsHitTestVisible=false,
-            Tag=opening, Opacity=IsDragging(opening)?.18:1 };
+            Tag=opening };
         // Shared boundaries use identical pixel coverage, without expanding either object.
         RenderOptions.SetEdgeMode(shape,EdgeMode.Aliased);
         Plan.Children.Add(shape);
@@ -72,25 +69,41 @@ public partial class MainWindow
             Plan.Children.Add(CreatePointMarker(position, tint, tag, tag is HighlightTag or SearchHighlightTag?11:6, opacity));
             return;
         }
-        var walls=Walls.Select(n=>n!.AsObject()).ToList();
-        void Shape(Avalonia.Media.Geometry geometry) {
-            var moved=geometry.Clone();moved.Transform=new TranslateTransform(delta.X*Scale,delta.Y*Scale);
-            Plan.Children.Add(new Avalonia.Controls.Shapes.Path {Data=moved,Fill=tint,Opacity=opacity,IsHitTestVisible=false,Tag=tag});
-        }
+        var walls=Walls.OfType<JsonObject>().ToList();
         if(entry.Kind=="room") {
-            Avalonia.Media.Geometry ring=new GeometryGroup();
-            foreach(var wall in walls.Where(w=>w["roomId"]?.ToString()==obj["id"]?.ToString()))ring=GeometryOps.Combine(ring,WallGeometry(wall,walls),GeometryCombineMode.Union,null);
-            Shape(ring);
-            foreach(var door in Doors.Select(n=>n!.AsObject()).Where(w=>w["roomId"]?.ToString()==obj["id"]?.ToString()))Shape(OpeningGeometry(door));
+            foreach(var wall in walls.Where(w=>BelongsToRoom(w,obj)))
+                DrawSegmentHighlight(WallGeometry(wall,walls),delta,opacity,tint,tag);
+            foreach(var door in Doors.OfType<JsonObject>().Where(w=>BelongsToRoom(w,obj)))
+                DrawSegmentHighlight(OpeningGeometry(door),delta,opacity,tint,tag);
         }
-        else Shape(entry.Kind=="door"?OpeningGeometry(obj):WallGeometry(obj,walls));
+        else DrawSegmentHighlight(entry.Kind=="door"?OpeningGeometry(obj):WallGeometry(obj,walls),delta,opacity,tint,tag);
     }
-    private void UpdateObjectOpacity()
+
+    private void DrawSegmentHighlight(Geometry geometry, Vector delta, double opacity, IBrush tint, string? tag)
     {
-        var selected=Objects.SelectedItems.Cast<ObjectEntry>().ToList();
+        var shape = new Avalonia.Controls.Shapes.Path {
+            Data=geometry, Fill=tint, Opacity=opacity, IsHitTestVisible=false, Tag=tag, ZIndex=92
+        };
+        if (delta != default) shape.RenderTransform = new TranslateTransform(delta.X*Scale, delta.Y*Scale);
+        RenderOptions.SetEdgeMode(shape, EdgeMode.Aliased);
+        Plan.Children.Add(shape);
+    }
+
+    private void RefreshSelectionHighlight()
+    {
+        ClearSelectionHighlight();
+        var selected=Objects.SelectedItems!.Cast<ObjectEntry>().ToList();
+        var chosen=new HashSet<JsonObject>(selected.Select(e=>e.Item),ReferenceEqualityComparer.Instance);
+        var rooms=selected.Where(e=>e.Kind=="room").Select(e=>e.Item).ToArray();
+        foreach (var entry in Objects.Items.OfType<ObjectEntry>().Where(e=>e.Kind is "wall" or "door"))
+            if (rooms.Any(room=>BelongsToRoom(entry.Item,room))) chosen.Add(entry.Item);
+
+        foreach (var entry in Objects.Items.OfType<ObjectEntry>())
+            if (entry.Kind!="room" && chosen.Contains(entry.Item))
+                DrawObjectShape(entry,default,SelectionOpacity,Brushes.DarkOrange,HighlightTag);
+
         foreach(var element in Plan.Children.OfType<FrameworkElement>())if(element.Tag is JsonObject obj) {
-            bool chosen=selected.Any(e=>ReferenceEquals(e.Item,obj) || e.Kind=="room" && obj["roomId"] is not null && obj["roomId"]?.ToString()==e.Item["id"]?.ToString());
-            element.Opacity=IsDragging(obj) || chosen && !(surveyMode && element is Ellipse)?0:1;
+            element.IsVisible=!chosen.Contains(obj) || surveyMode && element is Ellipse;
         }
     }
 
@@ -99,12 +112,12 @@ public partial class MainWindow
         if (!showObjectLabels || touchLabels) return;
         foreach(var (array,kind) in new[]{(Rooms,"room"),(Walls,"wall"),(Doors,"door"),(Points,"point"),(Decorations,"decoration")})
         foreach(var obj in array.Select(n=>n!.AsObject())) {
-            if(kind=="decoration" && obj["kind"]?.ToString()!="router")continue;
+            if(kind=="decoration" && obj["kind"]?.ToString()=="text")continue;
             if(kind=="point" && !surveyMode)continue;
-            if(obj["hideLabel"]?.GetValue<bool>()==true)continue;
-            var entry=new ObjectEntry(ObjectName(obj,kind),obj,kind); Point position=LabelPosition(entry);
-            string text=ObjectLabel(entry);
-            var label=new Border {Tag=entry,Child=new TextBlock {Text=text,FontSize=11},CornerRadius=new CornerRadius(6),Background=new SolidColorBrush(Color.FromArgb(190,255,255,255)),Opacity=labelOpacity,Padding=new Thickness(5,3,5,3),Tip=L("Перетащите подпись; двойной щелчок — переименовать")};
+            var entry=new ObjectEntry(ObjectName(obj,L(LabelRules.First(r=>r.Kind==kind).Title)),obj,kind);
+            if(!IsLabelVisible(entry))continue;
+            Point position=LabelPosition(entry);
+            var label=new Border {Tag=entry,Child=LabelText(entry),CornerRadius=new CornerRadius(6),Background=new SolidColorBrush(Color.FromArgb(190,255,255,255)),Opacity=labelOpacity,Padding=new Thickness(5,3,5,3),Tip=L("Перетащите подпись; двойной щелчок — переименовать")};
             Point? start=null; Point original=position; bool moved=false;
             label .PointerPressed+=(_,e)=> {
                 if(surveyMode || tool!="select" || measurementCancellation is not null)return;
@@ -130,7 +143,7 @@ public partial class MainWindow
                 label.ReleasePointer();RefreshTabHeaders();
             };
             label.PointerCaptureLost+=(_,_)=>{if(start is not null){Canvas.SetLeft(label,original.X);Canvas.SetTop(label,original.Y);start=null;}};
-            var menu=new ContextMenu();var hide=new MenuItem {Header=L("Удалить подпись")};hide.Click+=(_,_)=>{Remember();obj["hideLabel"]=true;dirty=true;RenderPlan();};menu.Items.Add(hide);label.ContextMenu=menu;
+            var menu=new ContextMenu();var hide=new MenuItem {Header=L("Скрывать подпись")};hide.Click+=(_,_)=>{Remember();SetObjectLabelVisibility(obj,false);dirty=true;RenderPlan();};menu.Items.Add(hide);label.ContextMenu=menu;
             Canvas.SetLeft(label,position.X);Canvas.SetTop(label,position.Y);Ui.SetZIndex(label,100);Plan.Children.Add(label);
         }
     }
@@ -141,6 +154,7 @@ public partial class MainWindow
         ? new Point(Screen((End(entry.Item,"a").X+End(entry.Item,"b").X)/2)+8,Screen((End(entry.Item,"a").Y+End(entry.Item,"b").Y)/2)+8)
         : new Point(Screen(Number(entry.Item["x"]))+8,Screen(Number(entry.Item["y"]))+8);
         if(entry.Item["kind"]?.ToString()=="router")position=new Point(Screen(Number(entry.Item["x"]))+RouterSize+6,Screen(Number(entry.Item["y"])));
+        if(entry.Item["kind"]?.ToString()=="text")position=new Point(Screen(Number(entry.Item["x"])),Screen(Number(entry.Item["y"])));
         if(entry.Item["labelOffset"] is JsonObject offset)position+=new Vector(Number(offset["x"])*Scale,Number(offset["y"])*Scale);
         return position;
     }

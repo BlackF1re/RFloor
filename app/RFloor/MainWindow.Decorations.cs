@@ -22,7 +22,8 @@ public partial class MainWindow
         double w=Number(obj["w"]),h=Number(obj["h"]);
         if(obj["kind"]?.ToString()=="router")w=h=RouterSize/Scale;
         if(obj["kind"]?.ToString()=="text") {
-            var text=new TextBlock {Text=ObjectName(obj,L("Подпись")),FontSize=13,Padding=new Thickness(5,3,5,3)};
+            var text=LabelText(new ObjectEntry(L("Подпись"),obj,"decoration"));
+            text.Padding=new Thickness(5,3,5,3);
             text.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));
             w=text.DesiredSize.Width/Scale;h=text.DesiredSize.Height/Scale;
         }
@@ -48,15 +49,24 @@ public partial class MainWindow
     private void DrawDecoration(JsonObject obj,Vector delta,IBrush? accent=null,double opacity=1,string? tag=null)
     {
         var bounds=DecorationBounds(obj);double w=bounds.Width*Scale,h=bounds.Height*Scale;
+        var kind=obj["kind"]?.ToString();
+        TextBlock? text=null;
+        if(kind=="text")
+        {
+            var entry=new ObjectEntry(L("Подпись"),obj,"decoration");
+            if(accent is null && !IsLabelVisible(entry))return;
+            text=LabelText(entry);
+            if(accent is null)opacity=labelOpacity;
+        }
         var stroke=accent??Brushes.Gray;
         IBrush? fill=accent??new SolidColorBrush(Color.FromRgb(212,212,212));
         if(obj["filled"]?.GetValue<bool>()==false)fill=null;
-        FrameworkElement visual=obj["kind"]?.ToString() switch {
+        FrameworkElement visual=kind switch {
             "router"=>new Image {Source=RouterImage(accent),Width=w,Height=h,
                 Clip=RouterClip(new Rect(bounds.Position+delta,bounds.Size))},
             "ellipse"=>new Ellipse {Width=w,Height=h,Stroke=stroke,StrokeThickness=1.5,Fill=fill},
             "line"=>new Line {X1=0,Y1=obj["reverse"]?.GetValue<bool>()==true?h:0,X2=w,Y2=obj["reverse"]?.GetValue<bool>()==true?0:h,Stroke=stroke,StrokeThickness=2},
-            "text"=>new Border {CornerRadius=new CornerRadius(6),Background=accent is null?Brushes.White:fill,Padding=new Thickness(5,3,5,3),Child=new TextBlock {Text=ObjectName(obj,L("Подпись")),Foreground=accent??Brushes.Black}},
+            "text"=>new Border {CornerRadius=new CornerRadius(6),Background=accent??Brushes.White,Padding=new Thickness(5,3,5,3),Child=text},
             _=>new Rectangle {Width=w,Height=h,RadiusX=obj["kind"]?.ToString()=="roundRect"?4:0,RadiusY=obj["kind"]?.ToString()=="roundRect"?4:0,Stroke=stroke,StrokeThickness=1.5,Fill=fill}
         };
         var host=new Canvas {Width=Math.Max(w,1),Height=Math.Max(h,1),IsHitTestVisible=false,Tag=(object?)tag??obj,Opacity=opacity};host.Children.Add(visual);

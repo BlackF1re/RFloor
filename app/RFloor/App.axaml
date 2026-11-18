@@ -37,11 +37,32 @@
   <Style Selector="TextBox"><Setter Property="MinHeight" Value="0"/><Setter Property="Padding" Value="9,7"/><Setter Property="Margin" Value="0,4,0,12"/><Setter Property="BorderBrush" Value="#BDBDBD"/><Setter Property="BorderThickness" Value="1"/><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
   <Style Selector="ComboBox"><Setter Property="MinHeight" Value="0"/><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
   <Style Selector="CheckBox"><Setter Property="MinHeight" Value="28"/></Style>
-  <Style Selector="TabControl.settingsTabs"><Setter Property="Template"><ControlTemplate><DockPanel><ScrollViewer DockPanel.Dock="Top" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"/></ScrollViewer><ContentPresenter Name="PART_SelectedContentHost" Content="{TemplateBinding SelectedContent}" ContentTemplate="{TemplateBinding SelectedContentTemplate}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/></DockPanel></ControlTemplate></Setter></Style>
+  <Style Selector="TabControl.settingsTabs">
+   <Setter Property="ItemsPanel"><ItemsPanelTemplate><StackPanel Orientation="Vertical" Spacing="4"/></ItemsPanelTemplate></Setter>
+   <Setter Property="Template"><ControlTemplate>
+    <DockPanel>
+     <Border Name="SettingsIndex" DockPanel.Dock="Left" Width="134" Background="#FAFAFA" BorderBrush="#E2E2E2" BorderThickness="0,0,1,0" Padding="0,4,4,4">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"><ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"/></ScrollViewer>
+     </Border>
+     <ContentPresenter Name="PART_SelectedContentHost" Content="{TemplateBinding SelectedContent}" ContentTemplate="{TemplateBinding SelectedContentTemplate}" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+    </DockPanel>
+   </ControlTemplate></Setter>
+  </Style>
+  <Style Selector="TabControl.settingsTabs.compact /template/ Border#SettingsIndex"><Setter Property="Width" Value="90"/></Style>
   <Style Selector="TabItem"><Setter Property="FontSize" Value="13"/><Setter Property="MinHeight" Value="0"/><Setter Property="Padding" Value="12,6"/></Style>
   <Style Selector="TabItem"><Setter Property="Template"><ControlTemplate><Border Name="TabSurface" Background="#EEEEEE" BorderBrush="Transparent" BorderThickness="0,0,0,2" Padding="{TemplateBinding Padding}"><ContentPresenter Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}" VerticalContentAlignment="Center"/></Border></ControlTemplate></Setter></Style>
   <Style Selector="TabItem:selected /template/ Border#TabSurface"><Setter Property="Background" Value="White"/><Setter Property="BorderBrush" Value="#C45100"/></Style>
   <Style Selector="TabItem:pointerover /template/ Border#TabSurface"><Setter Property="Background" Value="#FFF1E6"/></Style>
+  <Style Selector="TabItem.settingsPage">
+   <Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="Padding" Value="8,9"/><Setter Property="MinHeight" Value="42"/>
+  </Style>
+  <Style Selector="TabItem.settingsPage /template/ Border#TabSurface">
+   <Setter Property="BorderThickness" Value="3,0,0,0"/><Setter Property="CornerRadius" Value="0,7,7,0"/><Setter Property="Background" Value="Transparent"/>
+  </Style>
+  <Style Selector="TabItem.settingsPage:pointerover /template/ Border#TabSurface"><Setter Property="Background" Value="#FFF1E6"/></Style>
+  <Style Selector="TabItem.settingsPage:selected /template/ Border#TabSurface">
+   <Setter Property="Background" Value="#FFE5CC"/><Setter Property="BorderBrush" Value="#C45100"/>
+  </Style>
   <Style Selector="DockPanel#CanvasDock Button"><Setter Property="Height" Value="28"/><Setter Property="Padding" Value="10,0"/><Setter Property="Margin" Value="0,0,4,0"/></Style>
   <Style Selector="DockPanel#CanvasDock ComboBox"><Setter Property="MinWidth" Value="64"/></Style>
  </Application.Styles>

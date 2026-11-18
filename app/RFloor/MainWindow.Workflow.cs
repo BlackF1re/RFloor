@@ -50,7 +50,7 @@ public partial class MainWindow
     {
         var walls = Walls.Select(node => node!.AsObject()).ToList();
         foreach (var wall in walls) { var shape=new Avalonia.Controls.Shapes.Path {
-            Data=WallGeometry(wall,walls), Fill=Brushes.Gray, Tag=wall, Opacity=IsDragging(wall)?.18:1, IsHitTestVisible=false,
+            Data=WallGeometry(wall,walls), Fill=Brushes.Gray, Tag=wall, IsHitTestVisible=false,
             ZIndex=surveyMode?1:0 };
             RenderOptions.SetEdgeMode(shape,EdgeMode.Aliased); Plan.Children.Add(shape);
         }

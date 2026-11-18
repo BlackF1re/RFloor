@@ -188,7 +188,7 @@ public partial class MainWindow
         if(surveyMode || tool=="select") {
             var hit=touchLabelTarget ?? HitObject(point,14/(Scale*PlanZoom.ScaleX));
             Objects.SelectedItem=hit;
-            if(hit is not null && (hit.Kind=="point" || hit.Item["hideLabel"]?.GetValue<bool>()!=true))
+            if(hit is not null && (hit.Kind=="point" || IsLabelVisible(hit)))
                 ShowTouchCard(hit,viewportPoint);
             return;
         }
@@ -237,23 +237,12 @@ public partial class MainWindow
         Ui.SetZIndex(touchAnchorMarker,150);
         Plan.Children.Add(touchAnchorMarker);
     }
-    private static string ObjectLabel(ObjectEntry entry)
-    {
-        var obj=entry.Item;
-        string name=ObjectName(obj,entry.Label);
-        return entry.Kind switch {
-            "wall" or "door"=>name+L("\n{0:0.##} м",Length(obj)),
-            "room"=>name+L("\n{0:0.##} м × {1:0.##} м = {2:0.##} м²", Number(obj["w"]),Number(obj["h"]),Number(obj["w"])*Number(obj["h"])),
-            _=>name
-        };
-    }
-
     private void ShowTouchCard(ObjectEntry hit,Point position)
     {
         HideTouchCard();
         var grid=(Grid)Viewport.Parent!;
-        Control content=new TextBlock {Text=ObjectLabel(hit),TextWrapping=TextWrapping.Wrap};
-        if(hit.Kind=="point") content=PointDetails(hit.Item);
+        Control content=hit.Kind=="point" ? PointDetails(hit.Item) : LabelText(hit);
+        if(content is TextBlock label) label.TextWrapping=TextWrapping.Wrap;
         touchCard=new Border {
             Child=content,
             Background=Brushes.White, BorderBrush=Brushes.LightGray, BorderThickness=new Thickness(1),

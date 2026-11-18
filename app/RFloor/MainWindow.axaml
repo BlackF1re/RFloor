@@ -129,6 +129,7 @@
      <Grid x:Name="PropertySizePanel"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="10" /><ColumnDefinition /></Grid.ColumnDefinitions><StackPanel><c:TextBlock x:Name="PropertyWLabel" Text="{DynamicResource UI_114}" /><c:TextBox x:Name="PropertyW" /></StackPanel><StackPanel Grid.Column="2"><c:TextBlock x:Name="PropertyHLabel" Text="{DynamicResource UI_115}" /><c:TextBox x:Name="PropertyH" /></StackPanel></Grid>
      <StackPanel x:Name="PropertyThicknessPanel"><c:TextBlock Text="{DynamicResource UI_116}" /><c:TextBox x:Name="PropertyThickness" /></StackPanel>
      <c:TextBlock x:Name="PropertyHint" TextWrapping="Wrap" Foreground="#707070" FontSize="11" Margin="0,0,0,10" />
+     <StackPanel x:Name="PropertyLabelPanel" Spacing="4" Margin="0,0,0,12" />
      <c:Button Content="{DynamicResource UI_117}" Click="ApplyProperties_Click" Background="#C45100" Foreground="White" Margin="0,0,0,12" />
     </StackPanel></StackPanel></c:ScrollViewer></DockPanel></c:Border>
   </Grid>

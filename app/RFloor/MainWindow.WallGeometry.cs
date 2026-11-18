@@ -5,6 +5,7 @@ public partial class MainWindow {
     private const double WallStroke=5, OpeningStroke=1;
     private const double WallFaceTolerance=1e-8;
     private WallFace[][]? wallFaces;
+    private ILookup<(bool Vertical, double Axis), JsonObject>? roomJunctionWalls;
     private readonly record struct WallFace(Point A, Point B, Vector Inward)
     {
         public double Depth(Point point) => Vectors.Dot(point-A, Inward);
@@ -64,9 +65,52 @@ public partial class MainWindow {
         Vector normal=RoomOutward(wall);
         if(normal.SquaredLength<.5)return SurfaceLine(sa,sb,WallStroke);
         var room=Rooms.Select(n=>n!.AsObject()).First(r=>r["id"]?.ToString()==wall["roomId"]?.ToString());
-        bool Corner(Point q)=>RoomEdges(room).Any(e=>((Vector)(e.A-q)).Length<1e-6);
-        Vector along=sb-sa;along=along/along.Length;
-        Point oa=sa+normal*WallStroke-(Corner(a)?along*WallStroke:new Vector()),ob=sb+normal*WallStroke+(Corner(b)?along*WallStroke:new Vector());
-        var polygon=new StreamGeometry();using(var ctx=polygon.Open()){ctx.BeginFigure(sa,true);ctx.LineTo(sb);ctx.LineTo(ob);ctx.LineTo(oa);ctx.EndFigure(true);}return RegisterContour(polygon,[sa,sb,ob,oa]);
+        return RoomWallGeometry(a,b,room,normal);
+    }
+
+    private Geometry RoomWallGeometry(Point a,Point b,JsonObject room,Vector normal)
+    {
+        Point sa=new(Screen(a.X),Screen(a.Y)),sb=new(Screen(b.X),Screen(b.Y));
+        Vector along=sb-sa;
+        double length=along.Length;
+        along/=length;
+
+        (Point Inner,Point Outer) EndCap(Point vertex, Point pixel, Vector intoWall)
+        {
+            Point outer=pixel+normal*WallStroke;
+            if (!RoomEdges(room).Any(e=>((Vector)(e.A-vertex)).Length<1e-6)) return (pixel,outer);
+            if (ForeignWallAtCorner(room,vertex,normal,intoWall))
+            {
+                // The common wall already fills this corner. Butt the returning wall into its face.
+                var inset=intoWall*Math.Min(WallStroke,length*.49);
+                return (pixel+inset,outer+inset);
+            }
+            return (pixel,outer-intoWall*WallStroke);
+        }
+        var (ia,oa)=EndCap(a,sa,along);
+        var (ib,ob)=EndCap(b,sb,-along);
+        var polygon=new StreamGeometry();
+        using(var ctx=polygon.Open()){ctx.BeginFigure(ia,true);ctx.LineTo(ib);ctx.LineTo(ob);ctx.LineTo(oa);ctx.EndFigure(true);}
+        return RegisterContour(polygon,[ia,ib,ob,oa]);
+    }
+
+    private bool ForeignWallAtCorner(JsonObject room,Point vertex,Vector normal,Vector intoWall)
+    {
+        var roomId=room["id"]?.ToString();
+        roomJunctionWalls ??= Walls.OfType<JsonObject>().Where(w=>w["roomId"] is not null)
+            .ToLookup(w=>WallAxis(End(w,"a"),End(w,"b")));
+        // The adjoining wall follows the perpendicular edge toward the current room's interior.
+        var inward=vertex-normal/Scale;
+        return roomJunctionWalls[WallAxis(vertex,inward)].Any(w =>
+            w["roomId"]?.ToString()!=roomId &&
+            OverlapInterval(vertex,inward,End(w,"a"),End(w,"b")) is not null &&
+            SegmentDistance(vertex,w).Distance<1e-6 &&
+            Vectors.Dot(RoomOutward(w),intoWall)>.99);
+    }
+
+    private static (bool Vertical,double Axis) WallAxis(Point a,Point b)
+    {
+        bool vertical=Math.Abs(b.X-a.X)<1e-6;
+        return (vertical,Math.Round(vertical?a.X:a.Y,6));
     }
 }

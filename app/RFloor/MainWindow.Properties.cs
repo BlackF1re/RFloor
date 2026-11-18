@@ -35,9 +35,9 @@ public partial class MainWindow
             PropertyH.Text = Display(Number(segment ? obj["b"]!["y"] : obj["h"]));
         }
         if (wall) PropertyThickness.Text = Display(obj["thickness"] is null ? .14 : Number(obj["thickness"]));
-        bool roomHasWalls = room && Walls.Any(n => n?["roomId"]?.GetValue<string>() == obj["id"]?.GetValue<string>() && obj["id"] is not null);
+        bool roomHasWalls = room && HasRoomWalls(obj);
         PropertyHint.Text = room && !roomHasWalls ? L("Стены не связаны с этой комнатой и не изменятся вместе с ней.") : ownedWall ? L("Положение стены связано с комнатой. Измените размеры комнаты.") : room ? L("Стены комнаты перемещаются вместе с ней. Ширина и положение проёмов сохраняются при изменении размеров.") : point ? L("При переносе точки результаты замера сохраняются.") : selected.Kind == "door" ? L("Задайте концы проёма на той же стене; соседние участки стены изменятся вместе с ним.") : "";
-        DrawObjectShape(selected, new Vector(), SelectionOpacity, Brushes.DarkOrange, HighlightTag);
+        LoadObjectLabelProperties(selected);
     }
 
     private void ApplyProperties_Click(object sender, RoutedEventArgs e)
@@ -66,6 +66,7 @@ public partial class MainWindow
                 var walls = Walls.Select(n => n!.AsObject()).Where(v => id is not null && v["roomId"]?.GetValue<string>() == id).ToList();
                 var doors = Doors.Select(n => n!.AsObject()).Where(v => id is not null && v["roomId"]?.GetValue<string>() == id).ToList();
                 bool changed = x != ox || y != oy || w != ow || h != oh;
+                bool hadWalls=HasRoomWalls(obj);
                 if (changed && Points.Any(n => { var p = n!.AsObject(); double px = Number(p["x"]), py = Number(p["y"]); return px >= ox && px <= ox+ow && py >= oy && py <= oy+oh && !(px >= x && px <= x+w && py >= y && py <= y+h) && !Rooms.Any(other => !ReferenceEquals(other, obj) && px >= Number(other!["x"]) && px <= Number(other["x"])+Number(other["w"]) && py >= Number(other["y"]) && py <= Number(other["y"])+Number(other["h"])); }))
                     throw new FormatException(L("После изменения некоторые точки замера окажутся вне комнат. Сначала переместите точки."));
                 double Map(double value, double origin, double oldSize, double newOrigin, double newSize)
@@ -82,7 +83,7 @@ public partial class MainWindow
                 if (changed) RetainSharedSegments(obj, mapped.Select(m => (m.a,m.b)));
                 foreach (var m in mapped) { m.segment["a"]!["x"] = m.a.X; m.segment["a"]!["y"] = m.a.Y; m.segment["b"]!["x"] = m.b.X; m.segment["b"]!["y"] = m.b.Y; }
                 obj["x"] = x; obj["y"] = y; obj["w"] = w; obj["h"] = h; obj["name"] = string.IsNullOrWhiteSpace(PropertyName.Text) ? L("Комната") : PropertyName.Text.Trim();
-                if (changed && walls.Count > 0) CompleteRoomWalls(obj);
+                if (changed && hadWalls) CompleteRoomWalls(obj);
             }
             else if (selected.Kind == "point") { EnsurePointFree(x, y, obj); Remember(); obj["x"] = x; obj["y"] = y; obj["name"] = string.IsNullOrWhiteSpace(PropertyName.Text) ? L("Точка") : PropertyName.Text.Trim(); }
             else if (selected.Kind == "door") { EditOpening(obj, new Point(x, y), new Point(w, h)); }
@@ -90,6 +91,7 @@ public partial class MainWindow
             else if(selected.Kind=="decoration"){Remember();obj["x"]=x;obj["y"]=y;obj["w"]=Math.Max(0,w);obj["h"]=Math.Max(0,h);}
             else return;
             obj["name"] = string.IsNullOrWhiteSpace(PropertyName.Text) ? ObjectName(obj,selected.Kind) : PropertyName.Text.Trim();
+            SaveObjectLabelProperties(obj);
             dirty = true; RenderPlan(); Objects.SelectedItem = Objects.Items.Cast<ObjectEntry>().FirstOrDefault(item => ReferenceEquals(item.Item, obj)); Status.Text = L("Изменения применены. Сохраните проект.");
         }
         catch (FormatException ex) { MessageBox.Show(this, ex.Message, L("Проверьте свойства"), MessageBoxButton.OK, MessageBoxImage.Warning); }
@@ -118,7 +120,8 @@ public partial class MainWindow
             if (((Vector)(b-oldB)).Length < 1e-5) matches.Add((wall,"b",a,false));
         }
         var before = matches.Where(m => m.Start).ToList(); var after = matches.Where(m => !m.Start).ToList();
-        if (before.Count != 1 || after.Count != 1 || Vectors.Dot(newA-before[0].Other,direction) < .08 || Vectors.Dot(after[0].Other-newB,direction) < .08)
+        if (before.Count != 1 || after.Count != 1 || Vectors.Dot(newA-before[0].Other,direction) < .08 || Vectors.Dot(after[0].Other-newB,direction) < .08 ||
+            WallJunctions(newA-direction*.08,newB+direction*.08).Any())
             throw new FormatException(L("Недостаточно места на соседних участках стены или геометрия неоднозначна."));
         var neighbors = new[] { opening, before[0].Wall, after[0].Wall };
         EnsureSegmentFree(newA, newB, opening, neighbors);
