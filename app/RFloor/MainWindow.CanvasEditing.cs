@@ -10,6 +10,10 @@ public partial class MainWindow
 
     private void ResetPointerTools()
     {
+        CancelTouchGesture();
+        touchDrawingAnchor=null;
+        DrawTouchAnchor();
+        HideTouchCard();
         if (Plan.IsPointerCaptured()) Plan.ReleasePointer();
         tapeStart=tapeCursor=routerPreview=drawingStart=drawingEnd=dragStart=marqueeStart=marqueeEnd=null;
         dragItem=null; dragDelta=new Vector(); addingPoint=false; pointPreview=null;
@@ -62,17 +66,15 @@ public partial class MainWindow
 
     private void DrawObjectLabels()
     {
-        if (!showObjectLabels) return;
+        if (!showObjectLabels || touchLabels) return;
         foreach(var (array,kind) in new[]{(Rooms,"room"),(Walls,"wall"),(Doors,"door"),(Points,"point"),(Decorations,"decoration")})
         foreach(var obj in array.Select(n=>n!.AsObject())) {
             if(kind=="decoration" && obj["kind"]?.ToString()!="router")continue;
-            if(kind=="point" && (!surveyMode || (obj["band"]?.ToString()!=Band || SelectedAccessPoint is not null && !string.Equals(AccessPointId(obj),SelectedAccessPoint,StringComparison.OrdinalIgnoreCase))))continue;
+            if(kind=="point" && !surveyMode)continue;
             if(obj["hideLabel"]?.GetValue<bool>()==true)continue;
             var entry=new ObjectEntry(ObjectName(obj,kind),obj,kind); Point position=LabelPosition(entry);
-            string text=entry.Label;
-            if(kind is "wall" or "door")text+=L("\n{0:0.##} м", Length(obj));
-            if(kind=="room")text+=L("\n{0:0.##} м × {1:0.##} м = {2:0.##} м²", Number(obj["w"]), Number(obj["h"]), Number(obj["w"])*Number(obj["h"]));
-            var label=new Border {Child=new TextBlock {Text=text,FontSize=11},CornerRadius=new CornerRadius(6),Background=new SolidColorBrush(Color.FromArgb(190,255,255,255)),Opacity=labelOpacity,Padding=new Thickness(5,3,5,3),Tip=L("Перетащите подпись; двойной щелчок — переименовать")};
+            string text=ObjectLabel(entry);
+            var label=new Border {Tag=entry,Child=new TextBlock {Text=text,FontSize=11},CornerRadius=new CornerRadius(6),Background=new SolidColorBrush(Color.FromArgb(190,255,255,255)),Opacity=labelOpacity,Padding=new Thickness(5,3,5,3),Tip=L("Перетащите подпись; двойной щелчок — переименовать")};
             Point? start=null; Point original=position; bool moved=false;
             label .PointerPressed+=(_,e)=> {
                 if(surveyMode || tool!="select" || measurementCancellation is not null)return;

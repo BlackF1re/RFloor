@@ -7,12 +7,15 @@ public partial class MainWindow
     private readonly DispatcherTimer networkTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private bool networkBusy;
     private string? SelectedAccessPoint => (AccessPointPicker.SelectedItem as ComboBoxItem)?.Tag as string;
-    private static string? AccessPointId(JsonObject point) => point["measurements"]?["bssid"]?.GetValue<string>() ?? point["accessPoint"]?.GetValue<string>();
+    private static string? AccessPointId(JsonObject point) =>
+        (point["measurements"] as JsonObject)?["bssid"]?.ToString() ?? point["accessPoint"]?.ToString();
     private void UpdateAccessPoints()
     {
         string? previous = SelectedAccessPoint;
-        var ids = Points.Select(n => n!.AsObject()).Where(p => p["band"]?.GetValue<string>() == Band)
+        var ids = Points.OfType<JsonObject>().SelectMany(PointReadings).Where(p => p["band"]?.ToString() == Band)
             .Select(AccessPointId).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var existing=AccessPointPicker.Items.OfType<ComboBoxItem>().Select(i=>i.Tag as string);
+        if(existing.SequenceEqual(ids.Count==0?[null]:ids,StringComparer.OrdinalIgnoreCase)) return;
         AccessPointPicker.Items.Clear();
         if (ids.Count == 0) AccessPointPicker.Items.Add(new ComboBoxItem { Content = L("Нет данных"), Tag = null });
         else foreach (var id in ids) AccessPointPicker.Items.Add(new ComboBoxItem { Content = id, Tag = id });
@@ -44,9 +47,8 @@ public partial class MainWindow
         ("ping", "Ping, мс", [150,65,20]), ("loss", "Потери, %", [100,10,0]), ("download", "Скачивание, Мбит/с", [5,40,150]), ("upload", "Отправка, Мбит/с", [2,20,80])
     ];
     private void Thresholds_Click(object sender,RoutedEventArgs e)=>ShowPreferences(2);
-    private void DrawMeasurementRays(JsonObject point)
+    private void DrawMeasurementRays(Point p)
     {
-        var p = new Point(Number(point["x"]), Number(point["y"]));
         foreach (var d in new[] { new Vector(1,0), new Vector(0,1), new Vector(-1,0), new Vector(0,-1) })
         {
             double nearest = double.PositiveInfinity;
@@ -61,8 +63,8 @@ public partial class MainWindow
                 nearest=Math.Min(nearest,Math.Max(0,t-thickness/(2*Math.Max(.1,angle))));
             }
             if (!double.IsFinite(nearest)) continue;
-            var end=p+d*nearest; var line=new Line { X1=Screen(p.X),Y1=Screen(p.Y),X2=Screen(end.X),Y2=Screen(end.Y),Stroke=Brushes.DarkOrange,StrokeThickness=1.5,StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> { 3,2 },IsHitTestVisible=false,Tag=HighlightTag }; Plan.Children.Add(line);
-            var label=new TextBlock { Text=L("{0:0.##} м", nearest),Background=Brushes.White,Foreground=Brushes.DarkOrange,IsHitTestVisible=false,Tag=HighlightTag }; Canvas.SetLeft(label,Screen((p.X+end.X)/2)); Canvas.SetTop(label,Screen((p.Y+end.Y)/2)); Plan.Children.Add(label);
+            var end=p+d*nearest; var line=new Line { X1=Screen(p.X),Y1=Screen(p.Y),X2=Screen(end.X),Y2=Screen(end.Y),Stroke=Brushes.DarkOrange,StrokeThickness=1.5,StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> { 3,2 },IsHitTestVisible=false,Tag="point-preview" }; Plan.Children.Add(line);
+            var label=new TextBlock { Text=L("{0:0.##} м", nearest),Background=Brushes.White,Foreground=Brushes.DarkOrange,IsHitTestVisible=false,Tag="point-preview" }; Canvas.SetLeft(label,Screen((p.X+end.X)/2)); Canvas.SetTop(label,Screen((p.Y+end.Y)/2)); Plan.Children.Add(label);
         }
     }
 }

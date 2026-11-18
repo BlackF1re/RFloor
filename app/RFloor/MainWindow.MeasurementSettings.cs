@@ -90,8 +90,7 @@ public partial class MainWindow
             ((ScrollViewer)((TabItem)tabs.Items[1]).Content).Content=null;MeasurementSettingsPanel.IsVisible=false;parent.Children.Insert(index,MeasurementSettingsPanel);loadingSettings=previousLoading;
         }
         SwitchMode(surveyMode);RenderPlan();RefreshRulers();RefreshTabHeaders();
-        LeftPanelButton.Tip=(leftPanelOpen?L("Скрыть "):L("Показать "))+L("левую панель");
-        RightPanelButton.Tip=(rightPanelOpen?L("Скрыть "):L("Показать "))+L("правую панель");
+        RefreshPanelButtons();
         foreach(var session in sessions)if(session.Tab.Header is StackPanel header)
             foreach(var button in header.Children.OfType<Button>())button.Tip=L("Закрыть вкладку (Ctrl+W)");
         UpdateGridNumbers();

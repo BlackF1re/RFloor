@@ -47,11 +47,34 @@ public partial class MainWindow
     {
         if(Objects.SelectedItem is ObjectEntry entry) BeginInlineRename(entry);
     }
+    private static string? MeasurementStateText(JsonObject point) => point["measurementState"]?.ToString() switch {
+        "running"=>L("Замер выполняется…"),
+        "cancelled"=>L("Замер отменён"),
+        "mixed"=>L("Во время замера изменился BSSID, диапазон или состояние подключения. Повторите замер."),
+        "unverified"=>L("Не удалось подтвердить диапазон и BSSID. Повторите замер после подключения к Wi-Fi."),
+        "failed"=>L("Ошибка замера"),
+        _=>null
+    };
+
     private ToolTip PointTooltip(JsonObject point)
     {
         var panel = new StackPanel { Margin=new Thickness(6), MaxWidth=340 };
         panel.Children.Add(new TextBlock { Text=ObjectName(point,L("Точка")), FontWeight=FontWeights.SemiBold, Margin=new Thickness(0,0,0,6) });
+        if(MeasurementStateText(point) is {} state)
+            panel.Children.Add(new TextBlock {Text=state,TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DarkOrange});
+        if(point["measurementDiagnostic"] is {} diagnostic)
+            panel.Children.Add(new TextBlock {Text=diagnostic.ToString(),TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DarkOrange});
+        foreach(var reading in PointReadings(point).DefaultIfEmpty(point))
+            AddReadingDetails(panel,reading);
+        return new ToolTip { Content=new ScrollViewer {Content=panel,MaxHeight=400,VerticalScrollBarVisibility=ScrollBarVisibility.Auto} };
+    }
+
+    private void AddReadingDetails(StackPanel panel,JsonObject point)
+    {
         var measurements=point["measurements"] as JsonObject;
+        if(measurements is null) return;
+        panel.Children.Add(new TextBlock {Text=L("{0} ГГц",point["band"])+" · "+(AccessPointId(point)??"—"),
+            FontWeight=FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,8,0,2)});
         var requested=point["requested"] as JsonObject;
         bool Expected(string key) => requested?[key]?.GetValue<bool>() ?? false;
         void Row(string label, JsonNode? number, string kind, string unit, bool expected)
@@ -88,8 +111,6 @@ public partial class MainWindow
         if(measurements?["ssid"] is not null)panel.Children.Add(new TextBlock { Text=L("Сеть: {0}", measurements["ssid"]), Margin=new Thickness(0,6,0,0) });
         if(measurements?["bssid"] is not null)panel.Children.Add(new TextBlock { Text=L("Точка доступа: {0}", measurements["bssid"]) });
         if(measurements?["frequencyMHz"] is not null)panel.Children.Add(new TextBlock { Text=L("Частота: {0} МГц", measurements["frequencyMHz"]) });
-        if(point["measurementState"]?.GetValue<string>() is "running" or "cancelled") panel.Children.Add(new TextBlock { Text=point["measurementState"]!.GetValue<string>()=="running"?L("Замер выполняется…"):L("Замер отменён"), Foreground=Brushes.DarkOrange });
         if(measurements?["error"] is not null)panel.Children.Add(new TextBlock { Text=measurements["error"]!.ToString(), TextWrapping=TextWrapping.Wrap, Foreground=Brushes.DarkOrange });
-        return new ToolTip { Content=new ScrollViewer { Content=panel, MaxHeight=400, VerticalScrollBarVisibility=ScrollBarVisibility.Auto },  };
     }
 }

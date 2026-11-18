@@ -34,7 +34,8 @@ internal sealed class OverlayDialog(MainWindow owner) : UserControl
     private readonly TaskCompletionSource<bool> completion=new();
     internal string Title {get;set;}="RFloor";
     internal SizeToContent SizeToContent {get;set;}
-    internal void Complete(bool accepted){if(completion.TrySetResult(accepted))owner.CloseOverlay(this);}
+    internal bool ShowCloseButton {get;init;}=true;
+    internal void Complete(bool accepted){if(!completion.Task.IsCompleted){owner.CloseOverlay(this);completion.TrySetResult(accepted);}}
     internal Task<bool> ShowAsync(){owner.ShowOverlay(this,Title);return completion.Task;}
     internal void Cancel()=>Complete(false);
 }

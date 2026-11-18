@@ -6,12 +6,24 @@ public partial class MainWindow
     private bool surveyMode, addingPoint;
     private Point? pointPreview;
     private CancellationTokenSource? measurementCancellation;
+    private double CoverageRadius => (double)(CoverageRadiusInput.Value ?? (decimal)CoverageInterpolator.SupportRadius);
+    private void CoverageRadius_Changed(object? sender,NumericUpDownValueChangedEventArgs e)
+    {
+        if(!IsInitialized || loadingSettings || e.NewValue is not decimal value) return;
+        EnsureSurveyDocument();
+        if(Numeric(document["settings"]?["coverageRadius"],out var previous) && previous==(double)value) return;
+        Remember();
+        document["settings"]!["coverageRadius"]=(double)value;
+        dirty=true;
+        RenderPlan();
+    }
     private string Band => (BandPicker.SelectedItem as ComboBoxItem)?.Tag as string ?? "5";
     private string Metric => (MetricPicker.SelectedItem as ComboBoxItem)?.Tag as string ?? "signal";
     private JsonArray Points => document["points"] as JsonArray ?? new JsonArray();
     private void LoadSurveySettings()
     {
         if((document["settings"] ?? document["planSettings"]?["surveyDefaults"]) is not JsonObject settings) return;
+        CoverageRadiusInput.Value=Numeric(settings["coverageRadius"],out var radius)?(decimal)Math.Clamp(radius,.5,30):(decimal)CoverageInterpolator.SupportRadius;
         NetworkRefresh.Text=settings["networkRefreshSeconds"]?.ToString() ?? "5";
         RunSignal.IsChecked=settings["runSignal"]?.GetValue<bool>() ?? true; RunPing.IsChecked=settings["runPing"]?.GetValue<bool>() ?? true; RunIperf.IsChecked=settings["runIperf"]?.GetValue<bool>() ?? true; RunUpload.IsChecked=settings["runUpload"]?.GetValue<bool>() ?? settings["runIperf"]?.GetValue<bool>() ?? false;
         if(settings["pingTargets"] is JsonArray targets) PingTargets.Text=string.Join(", ",targets.Select(t=>t?.GetValue<string>()));
@@ -23,7 +35,7 @@ public partial class MainWindow
     {
         if (measurementCancellation is not null || activeSession is null) return;
         CommitInlineRename(); ResetPointerTools(); surveyMode=survey; addingPoint=false; EditorPanel.IsVisible=survey?false:true; SurveyPanel.IsVisible=survey?true:false;
-        ObjectHeading.Text=survey?L("Точки замера"):L("Объекты"); ObjectSubtitle.Text=survey?L("Текущий диапазон"):L("Стены, комнаты и проёмы"); MeasureButton.IsVisible=survey?true:false;
+        ObjectHeading.Text=survey?L("РўРѕС‡РєРё Р·Р°РјРµСЂР°"):L("РћР±СЉРµРєС‚С‹"); ObjectSubtitle.Text=survey?L("Р’С‹Р±РµСЂРёС‚Рµ С‚РѕС‡РєСѓ, С‡С‚РѕР±С‹ РїСЂРѕСЃРјРѕС‚СЂРµС‚СЊ РµС‘ Р·Р°РјРµСЂС‹"):L("РЎС‚РµРЅС‹, РєРѕРјРЅР°С‚С‹ Рё РїСЂРѕС‘РјС‹"); MeasureButton.IsVisible=survey?true:false;
 
         ModeSwitch.IsChecked=survey;
         UpdateModeVisual();
@@ -31,85 +43,136 @@ public partial class MainWindow
         foreach(var button in new[]{RoomTool,WallTool,DoorTool,TapeTool,RectangleTool,RoundedRectangleTool,RouterTool,EllipseTool,LineTool,TextTool}) button.IsVisible=survey?false:true;
         SurveyTools.IsVisible=survey?true:false;
         if(survey) tool="select"; SetToolVisuals();
-        ToolHint.Text=survey?L("Добавьте точки замеров и просматривайте итоговую тепловую карту."):L("Выберите инструмент построения или объект на холсте.");
-        Status.Text=survey?L("Добавьте точку на план или выберите существующую."):L("Редактор плана"); RenderPlan();
+        ToolHint.Text=survey?L("Р”РѕР±Р°РІСЊС‚Рµ С‚РѕС‡РєРё Р·Р°РјРµСЂРѕРІ Рё РїСЂРѕСЃРјР°С‚СЂРёРІР°Р№С‚Рµ РёС‚РѕРіРѕРІСѓСЋ С‚РµРїР»РѕРІСѓСЋ РєР°СЂС‚Сѓ."):L("Р’С‹Р±РµСЂРёС‚Рµ РёРЅСЃС‚СЂСѓРјРµРЅС‚ РїРѕСЃС‚СЂРѕРµРЅРёСЏ РёР»Рё РѕР±СЉРµРєС‚ РЅР° С…РѕР»СЃС‚Рµ.");
+        Status.Text=survey?L("Р”РѕР±Р°РІСЊС‚Рµ С‚РѕС‡РєСѓ РЅР° РїР»Р°РЅ РёР»Рё РІС‹Р±РµСЂРёС‚Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰СѓСЋ."):L("Р РµРґР°РєС‚РѕСЂ РїР»Р°РЅР°"); RenderPlan();
     }
-    private void AddPointMode_Click(object sender, RoutedEventArgs e) { if (Rooms.Count == 0) { Status.Text=L("Сначала добавьте комнату в редакторе плана."); return; } if (measurementCancellation is not null) { Status.Text=L("Дождитесь завершения текущего замера или отмените его."); return; } SwitchMode(true); addingPoint=true; Status.Text=L("Нажмите на план, чтобы разместить точку и начать замер."); }
+    private void AddPointMode_Click(object sender, RoutedEventArgs e) { if (Rooms.Count == 0) { Status.Text=L("РЎРЅР°С‡Р°Р»Р° РґРѕР±Р°РІСЊС‚Рµ РєРѕРјРЅР°С‚Сѓ РІ СЂРµРґР°РєС‚РѕСЂРµ РїР»Р°РЅР°."); return; } if (measurementCancellation is not null) { Status.Text=L("Р”РѕР¶РґРёС‚РµСЃСЊ Р·Р°РІРµСЂС€РµРЅРёСЏ С‚РµРєСѓС‰РµРіРѕ Р·Р°РјРµСЂР° РёР»Рё РѕС‚РјРµРЅРёС‚Рµ РµРіРѕ."); return; } SwitchMode(true); addingPoint=true; Status.Text=L("РќР°Р¶РјРёС‚Рµ РЅР° РїР»Р°РЅ, С‡С‚РѕР±С‹ СЂР°Р·РјРµСЃС‚РёС‚СЊ С‚РѕС‡РєСѓ Рё РЅР°С‡Р°С‚СЊ Р·Р°РјРµСЂ."); }
     private void SurveyView_Changed(object sender, RoutedEventArgs e) { if (IsInitialized && !loadingSettings && !updating && Plan != null && Objects != null) RenderPlan(); }
+    private bool InsideSurveyRoom(Point point) => Rooms.OfType<JsonObject>().Any(r=>
+        point.X>=Number(r["x"]) && point.X<=Number(r["x"])+Number(r["w"]) &&
+        point.Y>=Number(r["y"]) && point.Y<=Number(r["y"])+Number(r["h"]));
+
+    private void DrawPointPreview()
+    {
+        foreach(var control in Plan.Children.OfType<Control>().Where(c=>Equals(c.Tag,"point-preview")).ToArray())
+            Plan.Children.Remove(control);
+        if(!surveyMode || !addingPoint || pointPreview is not Point p || !InsideSurveyRoom(p)) return;
+        DrawMeasurementRays(p);
+        var marker=new Ellipse { Width=5, Height=5, Fill=Brushes.DarkOrange, Opacity=.7, IsHitTestVisible=false, Tag="point-preview" };
+        Canvas.SetLeft(marker,Screen(p.X)-2.5);
+        Canvas.SetTop(marker,Screen(p.Y)-2.5);
+        Plan.Children.Add(marker);
+    }
+
     private void SurveyClick(Point point)
     {
         if (!addingPoint) { SelectAt(point); return; }
-        if (!Rooms.Any(n => { var r=n!.AsObject(); return point.X>=Number(r["x"]) && point.X<=Number(r["x"])+Number(r["w"]) && point.Y>=Number(r["y"]) && point.Y<=Number(r["y"])+Number(r["h"]); })) { Status.Text=L("Разместите точку внутри комнаты."); return; }
-        if (Points.Any(n => Math.Sqrt(Math.Pow(Number(n!["x"])-point.X,2)+Math.Pow(Number(n["y"])-point.Y,2)) < .1)) { Status.Text=L("В этом месте уже есть точка замера."); return; }
+        if (!InsideSurveyRoom(point)) { Status.Text=L("Р Р°Р·РјРµСЃС‚РёС‚Рµ С‚РѕС‡РєСѓ РІРЅСѓС‚СЂРё РєРѕРјРЅР°С‚С‹."); return; }
         try { ReadMeasurementOptions(); } catch(FormatException ex) { Status.Text=ex.Message; return; }
         EnsureSurveyDocument();
-        Remember();
-        var item=new JsonObject { ["id"]=Id(), ["name"]=L("Точка {0}", Points.Count+1), ["x"]=point.X, ["y"]=point.Y, ["band"]=Band, ["accessPoint"]=SelectedAccessPoint, ["timestamp"]=DateTime.UtcNow.ToString("O") };
-        Points.Add(item); dirty=true; addingPoint=false; pointPreview=null; RenderPlan();
+        var item=Points.OfType<JsonObject>().MinBy(p=>((Vector)(point-new Point(Number(p["x"]),Number(p["y"])))).SquaredLength);
+        if(item is null || ((Vector)(point-new Point(Number(item["x"]),Number(item["y"])))).Length>=.1)
+        {
+            Remember();
+            item=new JsonObject { ["id"]=Id(), ["name"]=L("РўРѕС‡РєР° {0}", Points.Count+1), ["x"]=point.X, ["y"]=point.Y, ["band"]=Band, ["accessPoint"]=SelectedAccessPoint };
+            Points.Add(item);
+            dirty=true;
+        }
+        addingPoint=false; pointPreview=null; RenderPlan();
         Objects.SelectedItem=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(o=>ReferenceEquals(o.Item,item));
-        Status.Text=L("Точка добавлена. Начинается замер…");
+        Status.Text=L("РўРѕС‡РєР° РґРѕР±Р°РІР»РµРЅР°. РќР°С‡РёРЅР°РµС‚СЃСЏ Р·Р°РјРµСЂвЂ¦");
         Measure_Click(this, new RoutedEventArgs());
     }
     private static bool Numeric(JsonNode? node, out double value) => double.TryParse(node?.ToJsonString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) && double.IsFinite(value);
     private static string DescribePoint(JsonObject point)
     {
         var m=point["measurements"] as JsonObject;
-        string Value(string key,string unit) => Numeric(m?[key], out double x) ? $"{x:0.##} {unit}" : "—";
+        string Value(string key,string unit) => Numeric(m?[key], out double x) ? $"{x:0.##} {unit}" : "вЂ”";
         var ping=(m?["pings"] as JsonArray)?.FirstOrDefault(p=>p?["avg"] is JsonValue);
-        string latency=Numeric(ping?["avg"], out var ms)?L("{0:0.##} мс", ms):"—";
-        string pings = string.Join("\n", (m?["pings"] as JsonArray ?? new JsonArray()).Select(p => L("{0}: {1} · потери {2}", p?["target"]?.GetValue<string>() ?? "Ping", (Numeric(p?["avg"],out var avg) ? L("{0:0.##} мс", avg) : "—"), (Numeric(p?["loss"],out var loss) ? $"{loss:0.#}%" : "—"))));
-        return L("{0}\nСигнал: {1}\nPing: {2}\nСкачивание: {3}\nОтправка: {4}\n{5} {6} {7} МГц\n{8}\n{9}\n{10}", point["name"]?.GetValue<string>() ?? L("Точка"), (m?["rssi"] is null ? Value("quality", "%") : Value("rssi", "dBm")), latency, Value("downloadMbps", L("Мбит/с")), Value("uploadMbps", L("Мбит/с")), m?["ssid"]?.GetValue<string>() ?? "", m?["band"]?.GetValue<string>() ?? "", m?["frequencyMHz"]?.ToString() ?? "", m?["bssid"]?.GetValue<string>() ?? "", pings, m?["error"]?.GetValue<string>() ?? "").Trim();
+        string latency=Numeric(ping?["avg"], out var ms)?L("{0:0.##} РјСЃ", ms):"вЂ”";
+        string pings = string.Join("\n", (m?["pings"] as JsonArray ?? new JsonArray()).Select(p => L("{0}: {1} В· РїРѕС‚РµСЂРё {2}", p?["target"]?.GetValue<string>() ?? "Ping", (Numeric(p?["avg"],out var avg) ? L("{0:0.##} РјСЃ", avg) : "вЂ”"), (Numeric(p?["loss"],out var loss) ? $"{loss:0.#}%" : "вЂ”"))));
+        return L("{0}\nРЎРёРіРЅР°Р»: {1}\nPing: {2}\nРЎРєР°С‡РёРІР°РЅРёРµ: {3}\nРћС‚РїСЂР°РІРєР°: {4}\n{5} {6} {7} РњР“С†\n{8}\n{9}\n{10}", point["name"]?.GetValue<string>() ?? L("РўРѕС‡РєР°"), (m?["rssi"] is null ? Value("quality", "%") : Value("rssi", "dBm")), latency, Value("downloadMbps", L("РњР±РёС‚/СЃ")), Value("uploadMbps", L("РњР±РёС‚/СЃ")), m?["ssid"]?.GetValue<string>() ?? "", m?["band"]?.GetValue<string>() ?? "", m?["frequencyMHz"]?.ToString() ?? "", m?["bssid"]?.GetValue<string>() ?? "", pings, m?["error"]?.GetValue<string>() ?? "").Trim();
     }
     private sealed record MeasurementOptions(bool Signal, bool Ping, bool Download, bool Upload, string[] Targets, int Count, string Host, int Port, int Duration);
     private MeasurementOptions ReadMeasurementOptions()
     {
         bool signal=RunSignal.IsChecked==true, ping=RunPing.IsChecked==true, download=RunIperf.IsChecked==true, upload=RunUpload.IsChecked==true;
         var targets=PingTargets.Text.Split(',',StringSplitOptions.TrimEntries|StringSplitOptions.RemoveEmptyEntries);
-        if(ping && (targets.Length is 0 or >6 || targets.Any(x=>x.Length>253 || Uri.CheckHostName(x)==UriHostNameType.Unknown))) throw new FormatException(L("Укажите от 1 до 6 корректных адресов для ping."));
-        if(!int.TryParse(PingCount.Text,out int count) || count is <1 or >20) { if(ping)throw new FormatException(L("Количество запросов ping: от 1 до 20.")); count=4; }
-        if(!int.TryParse(IperfPort.Text,out int port) || port is <1 or >65535) { if(download || upload)throw new FormatException(L("Порт сервера iperf3: от 1 до 65535.")); port=5201; }
-        if(!int.TryParse(IperfDuration.Text,out int duration) || duration is <1 or >30) { if(download || upload)throw new FormatException(L("Длительность теста скорости: от 1 до 30 секунд.")); duration=5; }
+        if(ping && (targets.Length is 0 or >6 || targets.Any(x=>x.Length>253 || Uri.CheckHostName(x)==UriHostNameType.Unknown))) throw new FormatException(L("РЈРєР°Р¶РёС‚Рµ РѕС‚ 1 РґРѕ 6 РєРѕСЂСЂРµРєС‚РЅС‹С… Р°РґСЂРµСЃРѕРІ РґР»СЏ ping."));
+        if(!int.TryParse(PingCount.Text,out int count) || count is <1 or >20) { if(ping)throw new FormatException(L("РљРѕР»РёС‡РµСЃС‚РІРѕ Р·Р°РїСЂРѕСЃРѕРІ ping: РѕС‚ 1 РґРѕ 20.")); count=4; }
+        if(!int.TryParse(IperfPort.Text,out int port) || port is <1 or >65535) { if(download || upload)throw new FormatException(L("РџРѕСЂС‚ СЃРµСЂРІРµСЂР° iperf3: РѕС‚ 1 РґРѕ 65535.")); port=5201; }
+        if(!int.TryParse(IperfDuration.Text,out int duration) || duration is <1 or >30) { if(download || upload)throw new FormatException(L("Р”Р»РёС‚РµР»СЊРЅРѕСЃС‚СЊ С‚РµСЃС‚Р° СЃРєРѕСЂРѕСЃС‚Рё: РѕС‚ 1 РґРѕ 30 СЃРµРєСѓРЅРґ.")); duration=5; }
         string host=IperfHost.Text.Trim();
-        if((download || upload) && Uri.CheckHostName(host)==UriHostNameType.Unknown) throw new FormatException(L("Укажите корректный адрес сервера iperf3."));
+        if((download || upload) && Uri.CheckHostName(host)==UriHostNameType.Unknown) throw new FormatException(L("РЈРєР°Р¶РёС‚Рµ РєРѕСЂСЂРµРєС‚РЅС‹Р№ Р°РґСЂРµСЃ СЃРµСЂРІРµСЂР° iperf3."));
         return new(signal,ping,download,upload,targets,count,host,port,duration);
     }
     private async void Measure_Click(object sender, RoutedEventArgs e)
     {
         if (measurementCancellation != null) { measurementCancellation.Cancel(); return; }
-        if (Objects.SelectedItem is not ObjectEntry selected || selected.Kind!="point") { Status.Text=L("Выберите точку замера."); return; }
+        if (Objects.SelectedItem is not ObjectEntry selected || selected.Kind!="point") { Status.Text=L("Р’С‹Р±РµСЂРёС‚Рµ С‚РѕС‡РєСѓ Р·Р°РјРµСЂР°."); return; }
         MeasurementOptions options;
         try { options=ReadMeasurementOptions(); }
         catch(FormatException ex) { Status.Text=ex.Message; return; }
         var item=selected.Item; var currentDocument=document;
+        string requestedBand=Band; string? requestedAccessPoint=SelectedAccessPoint;
         SurveyPanel.IsEnabled=false; SettingsMenu.IsEnabled=false; DocumentTabs.IsEnabled=false; EditorRibbon.IsEnabled=false;
-        measurementCancellation=new CancellationTokenSource(); MeasureButton.IsEnabled=true; MeasureButton.Content=L("Отменить замер"); Status.Text=L("Выполняется замер сети…");
+        measurementCancellation=new CancellationTokenSource(); MeasureButton.IsEnabled=true; MeasureButton.Content=L("РћС‚РјРµРЅРёС‚СЊ Р·Р°РјРµСЂ"); Status.Text=L("Р’С‹РїРѕР»РЅСЏРµС‚СЃСЏ Р·Р°РјРµСЂ СЃРµС‚РёвЂ¦");
         try
         {
             var requested=new JsonObject { ["signal"]=options.Signal,["ping"]=options.Ping,["download"]=options.Download,["upload"]=options.Upload,
                 ["pingTargets"]=new JsonArray((options.Ping?options.Targets:[]).Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray()) };
-            Remember(); item["requested"]=requested; item.Remove("measurements"); item.Remove("timestamp"); item["measurementState"]="running"; dirty=true;
+            if(!options.Signal && !options.Ping && !options.Download && !options.Upload) {
+                Status.Text=L("Р’СЃРµ Р·Р°РјРµСЂС‹ РѕС‚РєР»СЋС‡РµРЅС‹ РІ РЅР°СЃС‚СЂРѕР№РєР°С….");
+                return;
+            }
+            Remember(); item["measurementState"]="running"; item.Remove("measurementDiagnostic"); dirty=true;
             RenderPlan();
-            var result=await NetworkMeasurements.RunConfiguredAsync(options.Signal,options.Ping?options.Targets:[],options.Count,(options.Download || options.Upload)?options.Host:null,options.Port,options.Duration,measurementCancellation.Token,options.Download,options.Upload);
-            if (!ReferenceEquals(document,currentDocument) || !Points.Contains(item)) { Status.Text=L("Проект изменён, результат замера не применён."); return; }
-            item["measurements"]=result; item["measurementState"]="complete"; item["timestamp"]=DateTime.UtcNow.ToString("O");
-            var detected=result["band"]?.GetValue<string>(); if(detected is "2.4" or "5" or "6") { item["band"]=detected; BandPicker.SelectedIndex=detected=="2.4"?0:detected=="5"?1:2; }
+            var result=await NetworkMeasurements.RunSurveyAsync(options.Signal,options.Ping?options.Targets:[],options.Count,(options.Download || options.Upload)?options.Host:null,options.Port,options.Duration,measurementCancellation.Token,options.Download,options.Upload);
+            if (!ReferenceEquals(document,currentDocument) || !Points.Contains(item)) { Status.Text=L("РџСЂРѕРµРєС‚ РёР·РјРµРЅС‘РЅ, СЂРµР·СѓР»СЊС‚Р°С‚ Р·Р°РјРµСЂР° РЅРµ РїСЂРёРјРµРЅС‘РЅ."); return; }
+            string? detected=result["band"]?.ToString();
+            string? bssid=result["bssid"]?.ToString();
+            bool offline=result["coverage"]?.GetValue<bool>()==false;
+            string? state=result["measurementState"]?.ToString();
+            if(state is null && offline && requestedAccessPoint is null) state="unverified";
+            if(offline) {
+                // A disconnected observation describes signal coverage only, for the explicitly selected AP.
+                result["pings"]=new JsonArray();
+                result.Remove("downloadMbps");
+                result.Remove("uploadMbps");
+            }
+            bool hasMeasurement=result["pings"] is JsonArray {Count: >0} ||
+                new[]{"rssi","quality","uploadMbps","downloadMbps"}.Any(key=>Numeric(result[key],out _));
+            if(state is null && !hasMeasurement) state="failed";
+            item["measurementState"]=state ?? "complete";
+            item["measurementDiagnostic"]=(result["wifiError"] ?? (state=="failed"?result["error"]:null))?.DeepClone();
+            if(state is not null) {
+                Status.Text=MeasurementStateText(item)!;
+                return;
+            }
+            SavePointReading(item,result,requested,detected ?? requestedBand,bssid ?? requestedAccessPoint);
+            if(detected is "2.4" or "5" or "6") {
+                BandPicker.SelectedIndex=detected=="2.4"?0:detected=="5"?1:2;
+                RenderPlan();
+                AccessPointPicker.SelectedItem=AccessPointPicker.Items.Cast<ComboBoxItem>()
+                    .FirstOrDefault(i=>string.Equals(i.Tag as string,bssid,StringComparison.OrdinalIgnoreCase));
+            }
             var settings=document["settings"]!.AsObject(); settings["runSignal"]=options.Signal; settings["runPing"]=options.Ping; settings["runIperf"]=options.Download; settings["runUpload"]=options.Upload;
             settings["pingTargets"]=new JsonArray(options.Targets.Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray()); settings["pingCount"]=options.Count; settings["iperfHost"]=options.Host; settings["iperfPort"]=options.Port; settings["iperfDuration"]=options.Duration;
             dirty=true;
-            Status.Text=!options.Signal && !options.Ping && !options.Download && !options.Upload ? L("Точка добавлена. Все замеры отключены в настройках.") : result["error"] is null ? L("Замер завершён.") : L("Замер завершён с ошибками — подробности в свойствах точки.");
+            Status.Text=result["error"] is null ? L("Р—Р°РјРµСЂ Р·Р°РІРµСЂС€С‘РЅ.") : L("Р—Р°РјРµСЂ Р·Р°РІРµСЂС€С‘РЅ СЃ РѕС€РёР±РєР°РјРё вЂ” РїРѕРґСЂРѕР±РЅРѕСЃС‚Рё РІ СЃРІРѕР№СЃС‚РІР°С… С‚РѕС‡РєРё.");
         }
-        catch(OperationCanceledException) { item["measurementState"]="cancelled"; Status.Text=L("Замер отменён."); }
-        catch(Exception ex) { item["measurementState"]="failed"; item["measurements"]=new JsonObject { ["error"]=ex.Message }; Status.Text=L("Ошибка замера: ") + ex.Message; }
+        catch(OperationCanceledException) { item["measurementState"]="cancelled"; Status.Text=L("Р—Р°РјРµСЂ РѕС‚РјРµРЅС‘РЅ."); }
+        catch(Exception ex) { item["measurementState"]="failed"; item["measurementDiagnostic"]=ex.Message; Status.Text=L("РћС€РёР±РєР° Р·Р°РјРµСЂР°: ") + ex.Message; }
         finally
         {
-            SurveyPanel.IsEnabled=true; SettingsMenu.IsEnabled=true; DocumentTabs.IsEnabled=true; EditorRibbon.IsEnabled=true; measurementCancellation.Dispose(); measurementCancellation=null; MeasureButton.Content=L("Повторить замер");
+            SurveyPanel.IsEnabled=true; SettingsMenu.IsEnabled=true; DocumentTabs.IsEnabled=true; EditorRibbon.IsEnabled=true; measurementCancellation.Dispose(); measurementCancellation=null; MeasureButton.Content=L("РџРѕРІС‚РѕСЂРёС‚СЊ Р·Р°РјРµСЂ");
             if(ReferenceEquals(document,currentDocument) && Points.Contains(item)) { RenderPlan(); Objects.SelectedItem=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(o=>ReferenceEquals(o.Item,item)); }
             MeasureButton.IsEnabled=Objects.SelectedItem is ObjectEntry { Kind: "point" };
         }
     }
     private (double Value,string Kind)? Sample(JsonObject p)
     {
-        var m=p["measurements"] as JsonObject; if(m is null) return null;
+        var m=MapReading(p)?["measurements"] as JsonObject; if(m is null) return null;
         if(Metric=="signal") { if(Numeric(m["rssi"], out var rv)) return (rv,"rssi"); if(Numeric(m["quality"], out var qv)) return (qv,"quality"); }
         if(Metric=="ping") { var ping=(m["pings"] as JsonArray)?.FirstOrDefault(x=>x?["avg"] is JsonValue); if(Numeric(ping?["avg"], out var pv)) return (pv,"ping"); }
         if(Metric is "download" or "upload" && Numeric(m[Metric+"Mbps"], out var sv)) return (sv,Metric);
@@ -128,21 +191,21 @@ public partial class MainWindow
     private void RenderPoints()
     {
         int index=0;
-        foreach(var node in Points) { var point=node!.AsObject(); if(point["band"]?.GetValue<string>()!=Band || (SelectedAccessPoint is not null && !string.Equals(AccessPointId(point),SelectedAccessPoint,StringComparison.OrdinalIgnoreCase))) continue;
+        foreach(var point in Points.OfType<JsonObject>()) {
             index++;
-            var sample=Sample(point); IBrush color=sample is { } s ? NoCoverage(s.Value,s.Kind)?Brushes.Transparent:new SolidColorBrush(SampleColor(s.Value,s.Kind)) : Brushes.Transparent;
+            var sample=Sample(point);
             var dot=new Border { Width=14,Height=14,Tag=point,Background=Brushes.Transparent,Tip=PointTooltip(point),Child=new Ellipse {Width=2.5,Height=2.5,Fill=Brushes.DarkOrange,Stroke=Brushes.DarkOrange,StrokeThickness=.5,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center} }; Canvas.SetLeft(dot,Screen(Number(point["x"]))-7); Canvas.SetTop(dot,Screen(Number(point["y"]))-7); Plan.Children.Add(dot);
-            string unit=sample?.Kind switch { "rssi" => "dBm", "quality" => "%", "ping" => L("мс"), _ => L("Мбит/с") };
-            string value=sample is { } v ? $"{v.Value:0.#} {unit}" : L("нет замера");
+            string unit=sample?.Kind switch { "rssi" => "dBm", "quality" => "%", "ping" => L("РјСЃ"), _ => L("РњР±РёС‚/СЃ") };
+            string value=sample is { } v ? $"{v.Value:0.#} {unit}" : L("РЅРµС‚ Р·Р°РјРµСЂР°");
 
-            Objects.Items.Add(new ObjectEntry($"{index}. {point["name"]?.GetValue<string>() ?? L("Точка")} · {value}",point,"point"));
+            Objects.Items.Add(new ObjectEntry($"{index}. {point["name"]?.GetValue<string>() ?? L("РўРѕС‡РєР°")} В· {value}",point,"point"));
         }
     }
     private void RenderHeatmap()
     {
-        if(ShowHeat.IsChecked!=true) { HeatLegend.Text=L("Тепловая карта скрыта"); return; }
-        var samples=Points.Select(n=>n!.AsObject()).Where(p=>p["band"]?.GetValue<string>()==Band && Sample(p)!=null && (SelectedAccessPoint is null || string.Equals(AccessPointId(p), SelectedAccessPoint, StringComparison.OrdinalIgnoreCase))).ToList();
-        if(samples.Count==0 || Rooms.Count==0) { HeatLegend.Text=L("Нет данных для выбранного показателя и диапазона"); return; }
+        if(ShowHeat.IsChecked!=true) { HeatLegend.Text=L("РўРµРїР»РѕРІР°СЏ РєР°СЂС‚Р° СЃРєСЂС‹С‚Р°"); return; }
+        var samples=Points.Select(n=>n!.AsObject()).Where(p=>Sample(p)!=null).ToList();
+        if(samples.Count==0 || Rooms.Count==0) { HeatLegend.Text=L("РќРµС‚ РґР°РЅРЅС‹С… РґР»СЏ РІС‹Р±СЂР°РЅРЅРѕРіРѕ РїРѕРєР°Р·Р°С‚РµР»СЏ Рё РґРёР°РїР°Р·РѕРЅР°"); return; }
         var covered=samples.FirstOrDefault(p=>Sample(p) is {Kind:"rssi"} s && !NoCoverage(s.Value,s.Kind))
             ?? samples.FirstOrDefault(p=>{var sample=Sample(p)!.Value; return !NoCoverage(sample.Value,sample.Kind);});
         string kind=Sample(covered??samples[0])!.Value.Kind;
@@ -150,8 +213,8 @@ public partial class MainWindow
         var defaults=ThresholdDefaults.First(t=>t.Key==kind).Values;
         var saved=document["settings"]?["thresholds"]?[kind] as JsonArray;
         double threshold(int i) => saved is not null && saved.Count==3 && Numeric(saved[i],out var v) ? v : defaults[i];
-        string units=kind switch { "rssi"=>"dBm", "quality"=>"%", "ping"=>L("мс"), _=>L("Мбит/с") };
-        HeatLegend.Text=L("Красный: {0:0.#} · жёлтый: {1:0.#} · зелёный: {2:0.#} {3}\nТочек: {4}. Локальная оценка между замерами (минимум 3, не на одной прямой), опоры до 4,5 м. Прозрачный — нет покрытия или недостаточно данных.", threshold(0), threshold(1), threshold(2), units, samples.Count);
+        string units=kind switch { "rssi"=>"dBm", "quality"=>"%", "ping"=>L("РјСЃ"), _=>L("РњР±РёС‚/СЃ") };
+        HeatLegend.Text=L("РљСЂР°СЃРЅС‹Р№: {0:0.#} В· Р¶С‘Р»С‚С‹Р№: {1:0.#} В· Р·РµР»С‘РЅС‹Р№: {2:0.#} {3}\nРўРѕС‡РµРє: {4}. Р›РѕРєР°Р»СЊРЅР°СЏ РѕС†РµРЅРєР° РјРµР¶РґСѓ Р·Р°РјРµСЂР°РјРё (РјРёРЅРёРјСѓРј 3, РЅРµ РЅР° РѕРґРЅРѕР№ РїСЂСЏРјРѕР№), СЂР°РґРёСѓСЃ РѕРїРѕСЂС‹ {5:0.##} Рј. РџСЂРѕР·СЂР°С‡РЅС‹Р№ вЂ” РЅРµС‚ РїРѕРєСЂС‹С‚РёСЏ РёР»Рё РЅРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РґР°РЅРЅС‹С….", threshold(0), threshold(1), threshold(2), units, samples.Count,CoverageRadius);
         foreach(var node in Rooms)
         {
             var room=node!.AsObject(); double x=Number(room["x"]),y=Number(room["y"]),w=Number(room["w"]),h=Number(room["h"]); double step=Math.Max(.2,Math.Max(w,h)/100);
@@ -180,7 +243,7 @@ public partial class MainWindow
             if(!uncovered && sample.Kind!=kind)continue;
             values.Add(new(new Point(Number(point["x"]),Number(point["y"])),uncovered?null:sample.Value));
         }
-        return new(values,(a,b)=>Walls.Any(w=>Crosses(a.X,a.Y,b.X,b.Y,w!.AsObject())));
+        return new(values,(a,b)=>Walls.Any(w=>Crosses(a.X,a.Y,b.X,b.Y,w!.AsObject())),CoverageRadius);
     }
     private (double Value,double Confidence)? EstimateHeat(Point position,IReadOnlyList<JsonObject> samples,string kind)
         => BuildCoverage(samples,kind).Estimate(position);

@@ -17,26 +17,49 @@ public partial class MainWindow {
     }
     private readonly Dictionary<OverlayDialog,Control> overlays=new();
     private readonly Dictionary<OverlayDialog,Size> overlaySizes=new();
-    private void RefreshOverlayBounds(){
+    private Avalonia.Controls.Platform.IInputPane? overlayInputPane;
+    private void OverlayKeyboardChanged(object? sender,Avalonia.Controls.Platform.InputPaneStateEventArgs e) => RefreshOverlayBounds(e.EndRect);
+    private void RefreshOverlayBounds(Rect? keyboard=null){
+        double available=Bounds.Height;
+        if((keyboard ?? overlayInputPane?.OccludedRect) is Rect occluded && occluded.Height>0 &&
+            TopLevel.GetTopLevel(this)?.TranslatePoint(occluded.TopLeft,this) is Point top && top.Y>0)
+            available=Math.Min(available,top.Y);
         foreach(var (dialog,shade) in overlays){
             var desired=overlaySizes[dialog];
             dialog.MaxWidth=Math.Max(160,Math.Min(780,Bounds.Width-48));
-            dialog.MaxHeight=Math.Max(80,Bounds.Height-100);
+            dialog.MaxHeight=Math.Max(80,available-72);
             if(!double.IsNaN(desired.Width))dialog.Width=Math.Min(desired.Width,dialog.MaxWidth);
             if(!double.IsNaN(desired.Height))dialog.Height=Math.Min(desired.Height,dialog.MaxHeight);
-            if(shade is Border {Child:Border card})card.MaxHeight=Math.Max(100,Bounds.Height-24);
+            if(shade is Border {Child:Border card} overlay) {
+                overlay.Padding=new Thickness(12,12,12,12+Math.Max(0,Bounds.Height-available));
+                card.MaxHeight=Math.Max(50,available-24);
+            }
         }
     }
     internal void ShowOverlay(OverlayDialog dialog,string title){
         var root=(Grid)Content!;dialog.MinWidth=0;dialog.MinHeight=0;
         overlaySizes.Add(dialog,new Size(dialog.Width,dialog.Height));
         dialog.KeyDown+=(_,e)=>{if(e.Key==Key.Escape){dialog.Cancel();e.Handled=true;}};
-        var header=new DockPanel {Margin=new Thickness(16,8)};var close=new Button {Content="×",MinWidth=44,MinHeight=44};close.Click+=(_,_)=>dialog.Cancel();DockPanel.SetDock(close,Dock.Right);header.Children.Add(close);header.Children.Add(new TextBlock {Text=title,FontSize=20,VerticalAlignment=VerticalAlignment.Center});
+        if(overlays.Count==0 && TopLevel.GetTopLevel(this)?.InputPane is {} inputPane) {
+            overlayInputPane=inputPane;inputPane.StateChanged+=OverlayKeyboardChanged;
+        }
+        var header=new DockPanel {Margin=new Thickness(16,8)};
+        if(dialog.ShowCloseButton) {
+            var close=new Button {Content="×",MinWidth=44,MinHeight=44};
+            close.Click+=(_,_)=>dialog.Cancel();DockPanel.SetDock(close,Dock.Right);header.Children.Add(close);
+        }
+        header.Children.Add(new TextBlock {Text=title,FontSize=20,VerticalAlignment=VerticalAlignment.Center});
         var panel=new DockPanel();DockPanel.SetDock(header,Dock.Top);panel.Children.Add(header);panel.Children.Add(dialog);
         var shade=new Border {Background=new SolidColorBrush(Color.FromArgb(110,0,0,0)),ZIndex=1000+overlays.Count,Padding=new Thickness(12),Child=new Border {Background=Brushes.White,CornerRadius=new CornerRadius(12),MaxWidth=800,MaxHeight=Math.Max(300,Bounds.Height-24),HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center,Child=panel}};
         overlays.Add(dialog,shade);RefreshOverlayBounds();root.Children.Add(shade);
         foreach(var cancel in dialog.GetVisualDescendants().OfType<Avalonia.Controls.Button>().Where(b=>b.IsCancel))cancel.Click+=(_,_)=>dialog.Cancel();
         dialog.Focus();
     }
-    internal void CloseOverlay(OverlayDialog dialog){overlaySizes.Remove(dialog);if(overlays.Remove(dialog,out var shade))((Grid)Content!).Children.Remove(shade);}
+    internal void CloseOverlay(OverlayDialog dialog){
+        overlaySizes.Remove(dialog);
+        if(overlays.Remove(dialog,out var shade))((Grid)Content!).Children.Remove(shade);
+        if(overlays.Count==0 && overlayInputPane is {} inputPane) {
+            inputPane.StateChanged-=OverlayKeyboardChanged;overlayInputPane=null;
+        }
+    }
 }

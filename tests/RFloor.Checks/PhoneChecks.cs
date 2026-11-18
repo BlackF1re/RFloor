@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Media;
+using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using RFloor;
@@ -16,6 +17,18 @@ internal static class PhoneChecks {
         object? Get(string name)=>typeof(MainWindow).GetField(name,flags)!.GetValue(view);
         void Require(bool condition,string message){if(!condition)throw new Exception(message);}
         void Layout(){Dispatcher.UIThread.RunJobs();host.UpdateLayout();}
+        void WaitUntil(Func<bool> condition){
+            using var done=new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var poll=new DispatcherTimer {Interval=TimeSpan.FromMilliseconds(15)};
+            poll.Tick+=(_,_)=>{if(condition())done.Cancel();};
+            if(!condition()) {
+                poll.Start();
+                Dispatcher.UIThread.MainLoop(done.Token);
+                poll.Stop();
+            }
+            Layout();
+            Require(condition(),"Timed out waiting for UI operation.");
+        }
         Call("AddDocument",Get("document"),null);host.Show();Layout();Call("SwitchMode",false);Layout();
         var plan=view.FindControl<Control>("Plan")!;
         Point At(double x,double y)=>plan.TranslatePoint(new Point(x,y),host)!.Value;
@@ -23,20 +36,95 @@ internal static class PhoneChecks {
         var document=(JsonObject)Get("document")!;
         Call("SetTool","tape");Tap(At(100,100));Require(Get("tapeStart") is not null,"Touch did not set tape origin.");
         Tap(At(220,180));Require(document["geometry"]!["tapes"]!.AsArray().Count==1,"Touch did not finish tape.");
-        Call("SetTool","rect");using(var finger=host.TouchBegin(At(100,250))){host.TouchMove(finger,At(220,320));host.TouchEnd(finger,At(220,320));}Layout();
-        Require(document["geometry"]!["decorations"]!.AsArray().Count==1,"Phone could not draw a primitive.");
+        Call("SetTool","rect");Tap(At(100,250));
+        using(var finger=host.TouchBegin(At(220,320))){
+            Layout();
+            Require(Get("drawingStart") is not null && document["geometry"]!["decorations"]!.AsArray().Count==0,"Construction did not preview before release.");
+            host.TouchEnd(finger,At(220,320));
+        }
+        Layout();
+        var decoration=document["geometry"]!["decorations"]![0]!;
+        var viewport=view.FindControl<ScrollViewer>("Viewport")!;
+        var zoomBeforePan=((ScaleTransform)view.FindControl<LayoutTransformControl>("ZoomHost")!.LayoutTransform!).ScaleX;
+        using(var finger=host.TouchBegin(At(230,230))){
+            host.TouchMove(finger,At(180,180));host.TouchEnd(finger,At(180,180));
+        }
+        Layout();
+        Require(viewport.Offset.X>0 && viewport.Offset.Y>0,"Single-finger pan did not scroll the plan.");
+        Require(((ScaleTransform)view.FindControl<LayoutTransformControl>("ZoomHost")!.LayoutTransform!).ScaleX==zoomBeforePan &&
+            document["geometry"]!["decorations"]!.AsArray().Count==1,"Panning changed zoom or created an object.");
+        viewport.Offset=default;Layout();
+        Call("SetTool","select");Tap(At(150,280));
+        Require(Get("touchCard") is not null,"Tapping an object did not open its label.");
+        Tap(At(50,220));Require(Get("touchCard") is null,"Tapping away did not dismiss the label.");
+        var oldFeedback=PlatformServices.LongPressFeedback;
+        bool haptic=false;PlatformServices.LongPressFeedback=()=>haptic=true;
+        try {
+            var oldX=decoration["x"]!.ToString();
+            using var finger=host.TouchBegin(At(150,280));
+            Require(Get("touchHold") is not null,"Touch on an object did not schedule long press.");
+            WaitUntil(()=>haptic);
+            host.TouchMove(finger,At(180,290));Layout();
+            Require(decoration["x"]!.ToString()==oldX && Get("dragItem") is not null,"Long press did not start a preview.");
+            host.TouchEnd(finger,At(180,290));Layout();
+            Require(decoration["x"]!.ToString()!=oldX,"Long press movement did not commit.");
+        } finally {PlatformServices.LongPressFeedback=oldFeedback;}
+        Call("SetTool","rect");
         var zoom=(ScaleTransform)view.FindControl<LayoutTransformControl>("ZoomHost")!.LayoutTransform!;double before=zoom.ScaleX;
         using(var first=host.TouchBegin(At(100,100)))using(var second=host.TouchBegin(At(200,100))){host.TouchMove(second,At(270,100));host.TouchEnd(second,At(270,100));host.TouchEnd(first,At(100,100));}Layout();
         Require(zoom.ScaleX>before,"Two-finger pinch did not zoom.");
         Require(document["geometry"]!["decorations"]!.AsArray().Count==1,"Pinch created an accidental primitive.");
+        viewport.Offset=default;
+        zoom.ScaleX=zoom.ScaleY=1;Layout();
+        Call("AddRoom_Click",view,new RoutedEventArgs());Layout();
+        Call("SwitchMode",true);
+        var wifi=PlatformServices.WifiReader;string band="2.4";
+        PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject {["band"]=band,["bssid"]=band,["rssi"]=-50});
+        try {
+            foreach(string name in new[]{"RunPing","RunIperf","RunUpload"})view.FindControl<CheckBox>(name)!.IsChecked=false;
+            Call("AddPointMode_Click",view,new RoutedEventArgs());Layout();
+            using(var finger=host.TouchBegin(At(147,160))){
+                Layout();
+                Require(Get("pointPreview") is not null && document["points"]!.AsArray().Count==0,"Survey point did not preview until release.");
+                host.TouchEnd(finger,At(147,160));
+            }
+            WaitUntil(()=>document["points"] is JsonArray {Count: >0} points && points[0]?["readings"] is JsonArray);
+            var point=document["points"]![0]!;
+            Tap(At(147,160));Require(Get("touchCard") is not null,"Tapping a survey point did not open its measurements.");
+            band="5";Call("AddPointMode_Click",view,new RoutedEventArgs());Tap(At(147,160));
+            WaitUntil(()=>point["readings"]!.AsArray().Count==2);
+            Require(document["points"]!.AsArray().Count==1 && point["readings"]![0]!["band"]!.ToString()=="2.4" &&
+                point["readings"]![1]!["band"]!.ToString()=="5","Another band replaced the saved reading or duplicated the point.");
+        } finally {PlatformServices.WifiReader=wifi;}
+        Call("CreateNamedPlan");Layout();
+        var naming=view.GetVisualDescendants().Single(v=>v.GetType().Name=="OverlayDialog");
+        var actions=naming.GetVisualDescendants().OfType<Button>().ToArray();
+        Require(actions.All(b=>b.Content?.ToString()!="×"),"New plan dialog unexpectedly has a close icon.");
+        var cancel=actions.Single(b=>b.IsCancel);var create=actions.Single(b=>b.IsDefault);
+        Require(cancel.TranslatePoint(default,naming)!.Value.X<create.TranslatePoint(default,naming)!.Value.X,"New plan actions are reversed.");
+        cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Layout();
+        Require(!view.GetVisualDescendants().Any(v=>v.GetType().Name=="OverlayDialog"),"Cancel did not close the new plan dialog.");
         Call("ShowPreferences",0);Layout();
         var tabs=view.GetVisualDescendants().OfType<TabControl>().Single(t=>t.Classes.Contains("settingsTabs"));
         var dialog=(Control)tabs.GetVisualAncestors().First(c=>c.GetType().Name=="OverlayDialog");
         foreach(int index in new[]{0,1,2,3}){tabs.SelectedIndex=index;Layout();Require(dialog.Bounds.Width<=host.Bounds.Width-24 && dialog.Bounds.Height<host.Bounds.Height,"Phone settings exceed the screen.");}
         host.Width=360;Layout();Require(dialog.Width<=312,"Open settings did not adapt to a narrower screen.");
         Require(view.HandleBack(),"Phone Back did not close settings.");Layout();
-        host.Width=412;Layout();Call("ToggleDrawer",view.FindControl<Control>("RightSidebar"));Layout();host.Width=300;Layout();
-        Require(view.FindControl<Control>("RightSidebar")!.Width<=268,"Open drawer did not adapt to rotation or split screen.");
+        host.Width=412;Layout();
+        var drawer=view.FindControl<Border>("RightSidebar")!;
+        Call("ToggleDrawer",drawer);Layout();
+        Require(drawer.RenderTransform is TranslateTransform,"Phone drawer did not animate opening.");
+        WaitUntil(()=>drawer.RenderTransform is null);
+        var handle=((Grid)drawer.Child!).Children[1];
+        var handleCenter=handle.TranslatePoint(new Point(12,handle.Bounds.Height/2),host)!.Value;
+        double widthBefore=drawer.Width;
+        using(var finger=host.TouchBegin(handleCenter)){
+            host.TouchMove(finger,handleCenter+new Vector(34,0));host.TouchEnd(finger,handleCenter+new Vector(34,0));
+        }
+        Layout();
+        Require(drawer.Width<widthBefore,"Phone drawer did not resize by touch.");
+        host.Width=300;Layout();
+        Require(drawer.Width<=268,"Open drawer did not adapt to rotation or split screen.");
         view.HandleBack();host.Width=1440;host.Height=900;Layout();
         var dock=view.FindControl<DockPanel>("CanvasDock")!;
         Require(dock.Bounds.Height==28,"Desktop dock did not restore its height.");

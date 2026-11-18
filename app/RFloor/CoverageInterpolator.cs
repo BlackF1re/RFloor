@@ -12,9 +12,11 @@ internal sealed class CoverageInterpolator
     private readonly List<Triangle> triangles=[];
     private readonly Func<Point,Point,bool> blocked;
     internal const double SupportRadius=4.5;
+    private readonly double radius;
 
-    internal CoverageInterpolator(IEnumerable<Sample> source, Func<Point,Point,bool>? blocked=null)
+    internal CoverageInterpolator(IEnumerable<Sample> source, Func<Point,Point,bool>? blocked=null,double radius=SupportRadius)
     {
+        this.radius=radius;
         this.blocked=blocked??((_,_)=>false);
         // Repeated coordinates must not multiply influence. The latest reading wins.
         samples=source.Where(s=>double.IsFinite(s.Position.X)&&double.IsFinite(s.Position.Y)
@@ -73,8 +75,8 @@ internal sealed class CoverageInterpolator
                 value+=sample.Value!.Value*weight;
             }
             // One nearby sample cannot justify a large unsurveyed triangle.
-            if(farthest>SupportRadius)return null;
-            double opacity=Math.Clamp(1-nearest/SupportRadius,.15,1);
+            if(farthest>radius)return null;
+            double opacity=Math.Clamp(1-nearest/radius,.15,1);
             return (value,opacity);
         }
         return null;

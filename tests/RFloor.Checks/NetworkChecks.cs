@@ -17,6 +17,15 @@ internal static class NetworkChecks {
             using var cancellation=new CancellationTokenSource();cancellation.Cancel();
             PlatformServices.WifiReader=ct=>Task.FromCanceled<JsonObject>(ct);
             try{await NetworkMeasurements.RunConfiguredAsync(true,[],4,null,5201,5,cancellation.Token,false,false);throw new Exception("Measurement cancellation was ignored.");}catch(OperationCanceledException){}
+            int observation=0;
+            int[] rssis=[-78,-50,-53,-55,-51];
+            PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject {["rssi"]=rssis[observation++],["band"]="5",["bssid"]="test"});
+            result=await NetworkMeasurements.RunSurveyAsync(true,[],4,null,5201,1,CancellationToken.None,false,false);
+            if(observation!=5 || result["rssi"]!.GetValue<double>()!=-53)throw new Exception("The survey did not save the RSSI median.");
+            observation=0;
+            PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject {["band"]=observation++==0?"2.4":"5",["bssid"]="test",["rssi"]=-53});
+            result=await NetworkMeasurements.RunSurveyAsync(false,[],4,null,5201,1,CancellationToken.None,false,false);
+            if(result["measurementState"]?.ToString()!="mixed" || result["rssi"] is not null)throw new Exception("A band change produced a valid survey reading.");
             Console.WriteLine("Network checks passed: platform Wi-Fi/native iperf bridge, both directions, enabled measurements, failures and cancellation.");
         }finally{PlatformServices.WifiReader=wifi;PlatformServices.IperfRunner=iperf;}
         foreach(var (frequency,band) in new[]{(2412,"2.4"),(5180,"5"),(6115,"6")}){

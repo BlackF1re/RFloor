@@ -56,6 +56,78 @@ internal static class NetworkMeasurements
         if(errors.Count>0) result["error"]=string.Join("; ",errors);
         return result;
     }
+    internal static async Task<JsonObject> RunSurveyAsync(bool signal, string[] targets, int count,
+        string? host, int port, int duration, CancellationToken token, bool download, bool upload)
+    {
+        var readings = new List<JsonObject>();
+        bool changed = false, unknown = false;
+        string? wifiError = null;
+        (string? Bssid,string? Band,bool Offline)? identity = null;
+        async Task Observe()
+        {
+            try
+            {
+                var reading = await ReadWifi(token);
+                if (reading["error"] is {} error) wifiError = error.ToString();
+                var bssid = reading["bssid"]?.ToString()?.ToUpperInvariant();
+                var band = reading["band"]?.ToString();
+                bool offline = reading["coverage"]?.GetValue<bool>() == false;
+                if (!offline && (string.IsNullOrWhiteSpace(bssid) || band is not ("2.4" or "5" or "6"))) {
+                    unknown = true;
+                    return;
+                }
+                var current = (bssid,band,offline);
+                if (identity is {} first && current != first) changed = true;
+                identity ??= current;
+                readings.Add(reading);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                unknown = true;
+                wifiError = ex.Message;
+            }
+        }
+        await Observe();
+        var network = RunConfiguredAsync(false,targets,count,host,port,duration,token,download,upload);
+        int observations = 1;
+        while (signal && observations < 5 || !network.IsCompleted)
+        {
+            var interval = Task.Delay(450,token);
+            if (signal && observations < 5) await interval;
+            else await Task.WhenAny(interval,network);
+            token.ThrowIfCancellationRequested();
+            await Observe();
+            observations++;
+        }
+        var result = await network;
+        if (!signal || targets.Length>0 || !string.IsNullOrEmpty(host)) await Observe();
+
+        if (changed || unknown || identity is null)
+        {
+            result["measurementState"] = changed ? "mixed" : "unverified";
+            if (wifiError is not null) result["wifiError"] = wifiError;
+            return result;
+        }
+
+        var last = readings[^1];
+        foreach (var key in new[] {"ssid","bssid","band","frequencyMHz","coverage"})
+            if(last[key] is {} value) result[key]=value.DeepClone();
+        if (signal)
+        {
+            foreach (var key in new[] {"rssi","quality"})
+            {
+                var samples = readings.Select(r=>r[key]).OfType<JsonValue>()
+                    .Select(v=>double.TryParse(v.ToJsonString(),NumberStyles.Float,CultureInfo.InvariantCulture,out var n)?n:double.NaN)
+                    .Where(double.IsFinite).Order().ToArray();
+                if (samples.Length>=3)
+                    result[key]=(samples[(samples.Length-1)/2]+samples[samples.Length/2])/2;
+            }
+            if (result["rssi"] is null && result["quality"] is null)
+                result["error"] = string.Join("; ",new[] {result["error"]?.ToString(),wifiError ?? L("Сигнал Wi-Fi недоступен")}.OfType<string>());
+        }
+        return result;
+    }
+
     internal static async Task<JsonObject> ReadWifi(CancellationToken token) {
         if(PlatformServices.WifiReader is {} native)return await native(token);
         var result=new JsonObject();var errors=new List<string>();

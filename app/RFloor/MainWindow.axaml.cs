@@ -187,14 +187,14 @@ public partial class MainWindow : SurfaceWindow
         }
         DrawDecorations();
         DrawRouterPreview();
+        DrawTouchAnchor();
         DrawObjectLabels();
         DrawEditorOverlay();
         updating = false;
         Objects.SelectedItem = Objects.Items.Cast<ObjectEntry>().FirstOrDefault(entry => ReferenceEquals(entry.Item, previousSelection));
         foreach(var entry in Objects.Items.Cast<ObjectEntry>().Where(e=>selectedIds.Contains(e.Item))) if (!Objects.SelectedItems.Contains(entry)) Objects.SelectedItems.Add(entry);
         Objects_SelectionChanged(Objects, null!);
-        if(surveyMode && addingPoint && pointPreview is Point pendingPoint && Rooms.Any(r=>pendingPoint.X>=Number(r!["x"]) && pendingPoint.X<=Number(r["x"])+Number(r["w"]) && pendingPoint.Y>=Number(r["y"]) && pendingPoint.Y<=Number(r["y"])+Number(r["h"])))
-            DrawMeasurementRays(new JsonObject {["x"]=pendingPoint.X,["y"]=pendingPoint.Y});
+        DrawPointPreview();
         RefreshTabHeaders();
     }
     private static double Length(JsonObject obj) { double dx=Number(obj["b"]!["x"])-Number(obj["a"]!["x"]), dy=Number(obj["b"]!["y"])-Number(obj["a"]!["y"]); return Math.Sqrt(dx*dx+dy*dy); }
@@ -249,17 +249,19 @@ public partial class MainWindow : SurfaceWindow
         if (cursor.X<0 || cursor.Y<0 || cursor.X>Viewport.ViewportWidth || cursor.Y>Viewport.ViewportHeight) cursor=new Point(Viewport.ViewportWidth/2,Viewport.ViewportHeight/2);
         ZoomAt(factor,cursor);
     }
-    private void ZoomAt(double factor, Point cursor)
+    private void ZoomAt(double factor, Point cursor, Point? destination = null)
     {
         double old=PlanZoom.ScaleX, next=Math.Clamp(old*factor,.4,5);
+        if (next==old && destination is null) return;
+        Point target=destination ?? cursor;
         var padding=PlanSurface.Padding;
         double x=(Viewport.HorizontalOffset+cursor.X-padding.Left)/old;
         double y=(Viewport.VerticalOffset+cursor.Y-padding.Top)/old;
         // Leave room to scroll on either side, including when zooming out at zero offset.
-        double left=Math.Max(padding.Left,cursor.X-x*next), top=Math.Max(padding.Top,cursor.Y-y*next);
+        double left=Math.Max(padding.Left,target.X-x*next), top=Math.Max(padding.Top,target.Y-y*next);
         PlanSurface.Padding=new Thickness(left,top,Viewport.ViewportWidth,Viewport.ViewportHeight);
         PlanZoom.ScaleX=PlanZoom.ScaleY=next; Viewport.UpdateLayout();
-        Viewport.ScrollToHorizontalOffset(x*next+left-cursor.X); Viewport.ScrollToVerticalOffset(y*next+top-cursor.Y);
+        Viewport.ScrollToHorizontalOffset(x*next+left-target.X); Viewport.ScrollToVerticalOffset(y*next+top-target.Y);
         ZoomLabel.Text=$"{next*100:0} %"; RefreshRulers();
     }
     private void ZoomIn_Click(object sender, RoutedEventArgs e) => Zoom(zoomFactor);
@@ -274,6 +276,7 @@ public partial class MainWindow : SurfaceWindow
     private void Plan_MouseDown(object sender, PointerPressedEventArgs e)
     {
         if(e.Button()!=MouseButton.Left && (e.Button()!=MouseButton.Right || surveyMode || tool is not ("rect" or "roundRect" or "ellipse" or "line")))return;
+        if(e.Pointer.Type==PointerType.Touch)return;
         if (inlineNameEditor is not null) { CommitInlineRename(); e.Handled=true; return; }
         if (!surveyMode && tool == "tape") return;
         var point = World(e.GetPosition(Plan));
@@ -287,16 +290,17 @@ public partial class MainWindow : SurfaceWindow
             if (Objects.SelectedItem is ObjectEntry selected) { dragItem = selected; dragStart = World(e.GetPosition(Plan), false); Plan.CapturePointer(); }
             return;
         }
-        if (surveyMode) { if(e.Pointer.Type!=PointerType.Touch)SurveyClick(point); return; }
+        if (surveyMode) { SurveyClick(point); return; }
         if(tool=="router"){AddRouter(point);return;}
 
-        drawingFilled=e.Pointer.Type==PointerType.Touch?!phoneOutline:e.Button()==MouseButton.Left;drawingButton=e.Button();e.Handled=true;
+        drawingFilled=e.Button()==MouseButton.Left;drawingButton=e.Button();e.Handled=true;
         drawingStart = drawingEnd = point; Plan.CapturePointer(); RenderPlan();
     }
     private void Plan_MouseMove(object sender, PointerEventArgs e)
     {
+        if(e.Pointer.Type==PointerType.Touch)return;
         if(!surveyMode && tool=="router"){routerPreview=World(e.GetPosition(Plan));DrawRouterPreview();return;}
-        if(surveyMode && addingPoint) {pointPreview=World(e.GetPosition(Plan));RenderPlan();return;}
+        if(surveyMode && addingPoint) {pointPreview=World(e.GetPosition(Plan));DrawPointPreview();return;}
         if (marqueeStart is not null && Plan.IsPointerCaptured()) { marqueeEnd=World(e.GetPosition(Plan),false); RenderPlan(); return; }
         if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured()) { dragDelta = AdjustDrag(item, World(e.GetPosition(Plan), false)-from); RenderPlan(); Status.Text = CanMove(item, dragDelta) ? L("Отпустите кнопку мыши, чтобы переместить объект.") : L("Здесь объект пересекается с другим или выходит за допустимые границы."); return; }
         if (!surveyMode && tool == "tape") return;
@@ -305,10 +309,7 @@ public partial class MainWindow : SurfaceWindow
     }
     private void Plan_MouseUp(object sender, PointerReleasedEventArgs e)
     {
-        if(e.Pointer.Type==PointerType.Touch && surveyMode && addingPoint){SurveyClick(World(e.GetPosition(Plan)));return;}
-        if(e.Pointer.Type==PointerType.Touch && surveyMode && Objects.SelectedItem is ObjectEntry tapPoint && tapPoint.Kind=="point" && (dragStart is not Point fingerStart || ((Vector)(World(e.GetPosition(Plan),false)-fingerStart)).Length*Scale*PlanZoom.ScaleX<8)){
-            Plan.ReleasePointer();dragStart=null;dragItem=null;var card=new OverlayDialog(this) {Title=ObjectName(tapPoint.Item,L("Точка")),Content=PointTooltip(tapPoint.Item).Content};_=card.ShowAsync();e.Handled=true;return;
-        }
+        if(e.Pointer.Type==PointerType.Touch)return;
         if(e.Button()!=MouseButton.Left && (drawingStart is null || e.Button()!=drawingButton))return;
         if(drawingStart is not null && e.Button()!=drawingButton)return;
         if (marqueeStart is Point first && marqueeEnd is Point last) { Plan.ReleasePointer(); marqueeStart=marqueeEnd=null; var area=Rects.Between(first,last); var entries=Objects.Items.Cast<ObjectEntry>().Where(v=>InsideMarquee(v,area)).ToList(); if (!PointerContext.Modifiers.HasFlag(KeyModifiers.Control)) Objects.SelectedItems.Clear(); foreach(var entry in entries) if(!Objects.SelectedItems.Contains(entry))Objects.SelectedItems.Add(entry); ClearMarquee(); return; }
@@ -320,7 +321,11 @@ public partial class MainWindow : SurfaceWindow
         }
         if (drawingStart is not Point start || !Plan.IsPointerCaptured()) return;
         e.Handled=true;
-        var end = World(e.GetPosition(Plan)); Plan.ReleasePointer(); drawingStart = drawingEnd = null;
+        var end = World(e.GetPosition(Plan)); Plan.ReleasePointer(); FinishDrawing(start,end);
+    }
+    private void FinishDrawing(Point start,Point end)
+    {
+        drawingStart = drawingEnd = null;
         if(tool is "wall" or "line")(start,end)=AlignConstructionLine(start,end,tool=="wall"?WallStroke:2);
         if(tool is "rect" or "roundRect" or "ellipse" or "line" or "text"){AddDecoration(start,end);if(tool!="text")RenderPlan();return;}
         if(tool=="door"){CutDrawnOpening(start,end);RenderPlan();return;}
@@ -347,9 +352,9 @@ public partial class MainWindow : SurfaceWindow
         Vector d=b-a; double t=d.SquaredLength < 1e-12 ? 0 : Math.Clamp(Vectors.Dot(p-a,d)/d.SquaredLength,0,1);
         return (((Vector)(p-(a+d*t))).Length,t);
     }
-    private void SelectAt(Point point)
+    private ObjectEntry? HitObject(Point point, double radius)
     {
-        ObjectEntry? best=null; double distance=.2;
+        ObjectEntry? best=null; double distance=radius;
         foreach (ObjectEntry entry in Objects.Items)
         {
             if (entry.Kind is "room" or "decoration") continue;
@@ -365,6 +370,11 @@ public partial class MainWindow : SurfaceWindow
             var r=entry.Item; double x=Number(r["x"]), y=Number(r["y"]);
             if (point.X>=x && point.X<=x+Number(r["w"]) && point.Y>=y && point.Y<=y+Number(r["h"])) best=entry;
         }
+        return best;
+    }
+    private void SelectAt(Point point)
+    {
+        var best=HitObject(point,.2);
         if (PointerContext.Modifiers.HasFlag(KeyModifiers.Control) && best is not null) { if(Objects.SelectedItems.Contains(best))Objects.SelectedItems.Remove(best);else Objects.SelectedItems.Add(best); } else Objects.SelectedItem=best;
     }
     private void CutOpening(Point point)

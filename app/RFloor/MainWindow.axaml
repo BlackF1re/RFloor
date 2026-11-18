@@ -17,7 +17,6 @@
   </Menu>
   <DockPanel DockPanel.Dock="Top" Background="#EEEEEE" Margin="8,4,8,0">
    <c:Button DockPanel.Dock="Right" Content="＋" ToolTip.Tip="{DynamicResource UI_23}" Click="New_Click" Width="32" Margin="4,0,0,0" Padding="0" />
-   <c:Button x:Name="LeftPanelButton" DockPanel.Dock="Left" Content="◧ ‹" ToolTip.Tip="{DynamicResource UI_24}" Click="ToggleLeftPanel_Click" Width="44" Margin="0,0,4,0" Padding="0" /><c:Button x:Name="RightPanelButton" DockPanel.Dock="Right" Content="› ◨" ToolTip.Tip="{DynamicResource UI_25}" Click="ToggleRightPanel_Click" Width="44" Margin="4,0,0,0" Padding="0" />
    <TabControl x:Name="DocumentTabs" SelectionChanged="DocumentTabs_SelectionChanged" BorderThickness="0" Background="Transparent">
     <TabControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></TabControl.ItemsPanel>
     <TabControl.Template><ControlTemplate><ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"><ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}"/></ScrollViewer></ControlTemplate></TabControl.Template>
@@ -38,8 +37,11 @@
    </StackPanel><StackPanel x:Name="SurveyPanel" IsVisible="False">
     <c:TextBlock Text="{DynamicResource UI_41}" FontSize="20" FontWeight="SemiBold" /><c:TextBlock Text="{DynamicResource UI_42}" Foreground="#707070" TextWrapping="Wrap" Margin="0,5,0,20" />
     <c:TextBlock Text="{DynamicResource UI_43}" TextWrapping="Wrap" Foreground="#707070" Margin="0,0,0,16" />
+    <c:TextBlock Text="{DynamicResource UI_MultiBandSurvey}" TextWrapping="Wrap" Foreground="#707070" Margin="0,0,0,16" />
     <c:TextBlock Text="{DynamicResource UI_44}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="BandPicker" SelectedIndex="1" SelectionChanged="SurveyView_Changed" Margin="0,7,0,16" Padding="8"><ComboBoxItem Content="{DynamicResource UI_45}" Tag="2.4" /><ComboBoxItem Content="{DynamicResource UI_46}" Tag="5" /><ComboBoxItem Content="{DynamicResource UI_47}" Tag="6" /></ComboBox>
     <c:TextBlock Text="{DynamicResource UI_48}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="AccessPointPicker" SelectionChanged="AccessPoint_Changed" Margin="0,7,0,16" Padding="8" /><c:TextBlock Text="{DynamicResource UI_49}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="MetricPicker" SelectedIndex="0" SelectionChanged="SurveyView_Changed" Margin="0,7,0,16" Padding="8"><ComboBoxItem Content="{DynamicResource UI_50}" Tag="signal" /><ComboBoxItem Content="Ping" Tag="ping" /><ComboBoxItem Content="{DynamicResource UI_51}" Tag="download" /><ComboBoxItem Content="{DynamicResource UI_52}" Tag="upload" /></ComboBox>
+    <c:TextBlock Text="{DynamicResource UI_CoverageRadius}" TextWrapping="Wrap" />
+    <NumericUpDown x:Name="CoverageRadiusInput" Minimum="0.5" Maximum="30" Increment="0.5" Value="4.5" FormatString="0.##" ValueChanged="CoverageRadius_Changed" Margin="0,6,0,12" />
     <CheckBox x:Name="ShowHeat" Content="{DynamicResource UI_53}" IsChecked="True" IsCheckedChanged="SurveyView_Changed" Margin="0,0,0,8" /><c:TextBlock x:Name="HeatLegend" Text="{DynamicResource UI_54}" TextWrapping="Wrap" Foreground="#707070" FontSize="11" Margin="0,0,0,16" />
     <c:TextBlock x:Name="NetworkStatus" Text="{DynamicResource UI_55}" TextWrapping="Wrap" Foreground="#707070" Margin="0,0,0,16" />
     <c:TextBlock Text="{DynamicResource UI_56}" TextWrapping="Wrap" Foreground="#707070" FontSize="11" />
@@ -82,11 +84,14 @@
      </DockPanel>
     </c:Border>
     <c:Border Grid.Row="2" Background="White" BorderBrush="#DEDEDE" BorderThickness="0,1,0,0" Padding="8,3">
-     
-     <DockPanel x:Name="CanvasDock" Height="28" LastChildFill="False">
-      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal"><c:TextBlock Text="{DynamicResource UI_93}" VerticalAlignment="Center" Margin="0,0,8,0" /><ComboBox x:Name="GridPicker" SelectedIndex="1" SelectionChanged="GridChanged" Height="28" VerticalContentAlignment="Center" Margin="0" Padding="5,0"><ComboBoxItem Content="0,05" Tag="0.05" /><ComboBoxItem Content="0,1" Tag="0.1" /><ComboBoxItem Content="0,25" Tag="0.25" /><ComboBoxItem Content="0,5" Tag="0.5" /><ComboBoxItem Content="1" Tag="1" /></ComboBox><c:Button x:Name="GridViewButton" Content="▦" Click="GridView_Click" ToolTip.Tip="{DynamicResource UI_94}" /></StackPanel>
+     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+     <c:Button x:Name="LeftPanelButton" Content="◧" ToolTip.Tip="{DynamicResource UI_24}" Click="ToggleLeftPanel_Click" Width="36" Padding="0" Margin="0" VerticalAlignment="Stretch" />
+     <c:Button x:Name="RightPanelButton" Grid.Column="2" Content="◨" ToolTip.Tip="{DynamicResource UI_25}" Click="ToggleRightPanel_Click" Width="36" Padding="0" Margin="0" VerticalAlignment="Stretch" />
+     <DockPanel x:Name="CanvasDock" Grid.Column="1" Height="28" LastChildFill="False">
+      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="4"><c:TextBlock Text="{DynamicResource UI_93}" VerticalAlignment="Center" Margin="0,0,8,0" /><ComboBox x:Name="GridPicker" SelectedIndex="1" SelectionChanged="GridChanged" Height="28" VerticalContentAlignment="Center" Margin="0" Padding="5,0"><ComboBoxItem Content="0,05" Tag="0.05" /><ComboBoxItem Content="0,1" Tag="0.1" /><ComboBoxItem Content="0,25" Tag="0.25" /><ComboBoxItem Content="0,5" Tag="0.5" /><ComboBoxItem Content="1" Tag="1" /></ComboBox><c:Button x:Name="GridViewButton" Content="▦" Click="GridView_Click" ToolTip.Tip="{DynamicResource UI_94}" /></StackPanel>
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"><c:Button Content="{DynamicResource UI_95}" ToolTip.Tip="{DynamicResource UI_96}" Click="Fit_Click" /><c:Button Content="−" ToolTip.Tip="{DynamicResource UI_97}" Click="ZoomOut_Click" /><c:TextBlock x:Name="ZoomLabel" Text="100 %" TextAlignment="Center" VerticalAlignment="Center" Margin="4,0,0,0" /><c:Button Content="+" ToolTip.Tip="{DynamicResource UI_98}" Click="ZoomIn_Click" /></StackPanel>
      </DockPanel>
+     </Grid>
     </c:Border>
     <Grid Grid.Row="1"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
     <c:Button x:Name="RulerModeButton" Grid.Column="2" Width="24" Height="24" Margin="0" Padding="0" Click="CycleRuler_Click" ToolTip.Tip="{DynamicResource UI_99}" />

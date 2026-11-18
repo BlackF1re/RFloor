@@ -149,7 +149,16 @@ public partial class MainWindow
         DrawMarquee();
         DrawTape();
         for(int i=firstOverlay;i<Plan.Children.Count;i++)Ui.SetZIndex(Plan.Children[i],150);
+        DrawDragPreview();
+    }
+
+    private readonly List<Control> dragPreview=[];
+    private void DrawDragPreview()
+    {
+        foreach(var control in dragPreview) Plan.Children.Remove(control);
+        dragPreview.Clear();
         if (dragStart is null || dragItem is not ObjectEntry item) return;
+        int firstPreview=Plan.Children.Count;
         var obj=item.Item; IBrush color=CanMove(item,dragDelta)?Brushes.DarkOrange:Brushes.Crimson;
         DrawObjectShape(item, dragDelta, SelectionOpacity, color, null);
         if (item.Kind=="door" && OpeningBounds(obj) is {} bounds) {
@@ -173,6 +182,6 @@ public partial class MainWindow
                 }
             }
         }
-
+        dragPreview.AddRange(Plan.Children.Skip(firstPreview));
     }
 }

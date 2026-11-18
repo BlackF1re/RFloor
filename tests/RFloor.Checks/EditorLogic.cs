@@ -88,8 +88,8 @@ internal static class EditorLogic
         Call("BeginInlineRename",routerEntry);((TextBox)Get("inlineNameEditor")!).Text="Router office";Call("CommitInlineRename");
         Require(router["name"]?.ToString()=="Router office","Router name cannot be edited");
         geometry["decorations"]!.AsArray().Remove(router);
-        Call("ZoomAt",100d,new Point(100,100));Near(((Avalonia.Media.ScaleTransform)((LayoutTransformControl)window.FindControl<Control>("ZoomHost")!).LayoutTransform).ScaleX,5,"Zoom cannot reach 500%");
-        Call("ZoomAt",.2d,new Point(100,100));
+        Call("ZoomAt",100d,new Point(100,100),null);Near(((Avalonia.Media.ScaleTransform)((LayoutTransformControl)window.FindControl<Control>("ZoomHost")!).LayoutTransform).ScaleX,5,"Zoom cannot reach 500%");
+        Call("ZoomAt",.2d,new Point(100,100),null);
         Call("SetTool","room");Call("DrawConstruction",new Point(0,0),new Point(2,3));
         Require(plan.Children.OfType<Border>().Any(v=>v.Child is TextBlock t && t.Text=="2 м × 3 м = 6 м²"),"Room preview lacks dimensions and area");
         Call("SetTool","tape");Call("TapeClick",new Point(1,1));Call("TapeClick",new Point(2,1));Require(geometry["tapes"]!.AsArray().Count==1 && Get("tapeStart") is null,"Tape was not completed");

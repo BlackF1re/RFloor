@@ -8,13 +8,13 @@ using Android.OS;
 using Avalonia.Android;
 using System.Text.Json.Nodes;
 namespace RFloor.Android;
-[Activity(Label="RFloor",Theme="@style/RFloorTheme",Icon="@drawable/icon",MainLauncher=true,Exported=true,ConfigurationChanges=ConfigChanges.Orientation|ConfigChanges.ScreenSize|ConfigChanges.UiMode|ConfigChanges.KeyboardHidden)]
+[Activity(Label="RFloor",Theme="@style/RFloorTheme",Icon="@drawable/icon",MainLauncher=true,Exported=true,WindowSoftInputMode=global::Android.Views.SoftInput.AdjustResize,ConfigurationChanges=ConfigChanges.Orientation|ConfigChanges.ScreenSize|ConfigChanges.UiMode|ConfigChanges.KeyboardHidden)]
 public class MainActivity : AvaloniaMainActivity {
     private bool requested;
     #pragma warning disable CS0672, CS0618
     public override async void OnBackPressed(){if(Avalonia.Application.Current is RFloor.App app && app.View is {} view){if(view.HandleBack())return;if(!await view.RequestClose())return;}base.OnBackPressed();}
     #pragma warning restore CS0672, CS0618
-    protected override void OnCreate(Bundle? state){PlatformServices.WifiReader=ReadWifi;PlatformServices.IperfRunner=NativeIperf.Run; base.OnCreate(state);
+    protected override void OnCreate(Bundle? state){PlatformServices.LongPressFeedback=()=>Window?.DecorView?.PerformHapticFeedback(global::Android.Views.FeedbackConstants.LongPress);PlatformServices.WifiReader=ReadWifi;PlatformServices.IperfRunner=NativeIperf.Run; base.OnCreate(state);
 #if RFLOOR_PLATFORM_CHECKS
         if(Intent?.GetBooleanExtra("rfloor_platform_checks",false)==true)_=PlatformChecks.Run(this);
 #endif

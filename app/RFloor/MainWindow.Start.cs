@@ -49,18 +49,19 @@ public partial class MainWindow
 
     private async void CreateNamedPlan()
     {
-        var field=new TextBox {Text=L("Новый план"),MinWidth=200};
+        var field=new TextBox {Text=L("Новый план"),Watermark=L("Название плана"),MinWidth=200};
         var error=new TextBlock {Foreground=Brushes.Firebrick,TextWrapping=TextWrapping.Wrap};
         var create=new Button {Content=L("Создать"),IsDefault=true};
         var cancel=new Button {Content=L("Отмена"),IsCancel=true};
         var buttons=new StackPanel {Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,16,0,0)};
-        buttons.Children.Add(create);buttons.Children.Add(cancel);
-        var content=new StackPanel {Margin=new Thickness(24)};
-        content.Children.Add(new TextBlock {Text=L("Название плана"),FontSize=18,FontWeight=FontWeights.SemiBold});
+        buttons.Spacing=8;buttons.Children.Add(cancel);buttons.Children.Add(create);
+        var content=new StackPanel {Margin=new Thickness(16,4,16,12),Spacing=4,MaxWidth=400};
         content.Children.Add(field);
-        content.Children.Add(new TextBlock {Text=L("Расширение .rfplan добавится автоматически"),Foreground=Brushes.Gray});
+        content.Children.Add(new TextBlock {Text=L("Расширение .rfplan добавится автоматически"),Foreground=Brushes.Gray,TextWrapping=TextWrapping.Wrap});
         content.Children.Add(error);content.Children.Add(buttons);
-        var dialog=new OverlayDialog(this) {Title=L("Создать план"),Content=content,SizeToContent=SizeToContent.WidthAndHeight,};
+        var dialog=new OverlayDialog(this) {Title=L("Создать план"),Content=new ScrollViewer {Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto},ShowCloseButton=false,SizeToContent=SizeToContent.WidthAndHeight,};
+        cancel.Click+=(_,_)=>dialog.Cancel();
+        field.KeyDown+=(_,e)=>{if(e.Key==Key.Enter){create.RaiseEvent(new RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));e.Handled=true;}};
         string? name=null;
         create.Click+=(_,_)=>{
             string value=field.Text.Trim();

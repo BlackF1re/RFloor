@@ -20,8 +20,8 @@ public partial class MainWindow
     }
     private void Viewport_ScrollChanged(object sender, ScrollChangedEventArgs e) => RefreshRulers();
     private void Viewport_SizeChanged(object sender, SizeChangedEventArgs e) => RefreshRulers();
-    private void Viewport_PointerMove(object sender, PointerEventArgs e) { PanMove(e); if(!surveyMode && tool=="tape" && tapeStart is not null && panAnchor is null){tapeCursor=TapeSnap(World(e.GetPosition(Plan),false));DrawTape();} rulerPointer=e.GetPosition(Viewport); RefreshRulers(); }
-    private void Viewport_PointerLeave(object sender, PointerEventArgs e) { rulerPointer=null; RefreshRulers(); if(routerPreview is not null){routerPreview=null;DrawRouterPreview();} if(pointPreview is not null){pointPreview=null;RenderPlan();} }
+    private void Viewport_PointerMove(object sender, PointerEventArgs e) { if(e.Pointer.Type==PointerType.Touch)return; PanMove(e); if(!surveyMode && tool=="tape" && tapeStart is not null && panAnchor is null){tapeCursor=TapeSnap(World(e.GetPosition(Plan),false));DrawTape();} rulerPointer=e.GetPosition(Viewport); RefreshRulers(); }
+    private void Viewport_PointerLeave(object sender, PointerEventArgs e) { rulerPointer=null; RefreshRulers(); if(routerPreview is not null){routerPreview=null;DrawRouterPreview();} if(e.Pointer.Type!=PointerType.Touch && pointPreview is not null){pointPreview=null;DrawPointPreview();} }
     private void RefreshRulers()
     {
         if (RulerModeButton is null || RulerTop is null || Viewport is null || ProjectionOverlay is null || PlanZoom is null) return;

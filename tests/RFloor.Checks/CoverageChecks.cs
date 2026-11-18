@@ -12,6 +12,7 @@ internal static class CoverageChecks
         var model=new CoverageInterpolator(triangle);
         foreach(var sample in triangle)Check(Math.Abs(model.Estimate(sample.Position)!.Value.Value-sample.Value!.Value)<1e-8,"Measurement anchor changed.");
         Check(Math.Abs(model.Estimate(new(1,1))!.Value.Value+70)<1e-8,"Barycentric interpolation failed.");
+        Check(new CoverageInterpolator(triangle,radius:2).Estimate(new(1,1)) is null,"Support radius did not limit interpolation.");
         Check(model.Estimate(new(2,2)) is null,"Extrapolated outside the survey hull.");
         Check(model.Estimate(new(double.NaN,0)) is null,"Nonfinite query accepted.");
         Check(new CoverageInterpolator(triangle.Take(1)).Estimate(new(0,0)) is null,"One sample painted a heatmap.");

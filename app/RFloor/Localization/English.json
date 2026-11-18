@@ -349,5 +349,15 @@
   "Перемещение холста": "Pan canvas",
   "Только контур": "Outline only",
   "Разрешите точное местоположение в настройках приложения Android.": "Allow precise location in Android app permissions.",
-  "Включите местоположение в настройках Android для определения SSID и BSSID.": "Enable Location in Android settings to read SSID and BSSID."
+  "Включите местоположение в настройках Android для определения SSID и BSSID.": "Enable Location in Android settings to read SSID and BSSID.",
+  "Радиус интерполяции, м": "Interpolation radius, m",
+  "Во время замера изменился BSSID, диапазон или состояние подключения. Повторите замер.": "The BSSID, band or connection state changed during the measurement. Repeat the measurement.",
+  "Не удалось подтвердить диапазон и BSSID. Повторите замер после подключения к Wi-Fi.": "Could not verify the band and BSSID. Reconnect to Wi-Fi and repeat the measurement.",
+  "Все замеры отключены в настройках.": "All measurements are disabled in Settings.",
+  "Выберите точку, чтобы просмотреть её замеры": "Select a point to view its measurements",
+  "Изменить ширину панели": "Resize panel",
+  "Красный: {0:0.#} · жёлтый: {1:0.#} · зелёный: {2:0.#} {3}\nТочек: {4}. Локальная оценка между замерами (минимум 3, не на одной прямой), радиус опоры {5:0.##} м. Прозрачный — нет покрытия или недостаточно данных.": "Red: {0:0.#} · yellow: {1:0.#} · green: {2:0.#} {3}\nPoints: {4}. Local estimates between samples (at least 3, not collinear), support radius {5:0.##} m. Transparent: no coverage or insufficient data.",
+  "Коснитесь второй точки, чтобы завершить построение.": "Tap the second position to finish drawing.",
+  "Для замера другого диапазона переключите Wi‑Fi в настройках устройства и повторите замер в той же точке.": "To measure another band, switch Wi-Fi in your device settings and repeat the measurement at the same point.",
+  "Ошибка замера": "Measurement failed"
 }
