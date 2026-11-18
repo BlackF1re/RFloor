@@ -22,7 +22,7 @@ public partial class MainWindow
         if(e.Button()!=MouseButton.Middle)return;
         var a=tapeStart;var c=tapeCursor;
         ResetPointerTools(keepSurveyTool:true);tapeStart=a;tapeCursor=c;
-        panAnchor=e.GetPosition(Viewport);Viewport.CapturePointer();Viewport.Cursor=PanCursor;e.Handled=true;
+        panAnchor=e.GetPosition(Viewport);Viewport.CapturePointer();Viewport.Cursor=PanCursor;UpdateCoverageHover();e.Handled=true;
     }
     private void PanEnd(object sender,PointerReleasedEventArgs e){if(e.Button()!=MouseButton.Middle)return;EndPan();e.Handled=true;}
     private void PanMove(PointerEventArgs e)

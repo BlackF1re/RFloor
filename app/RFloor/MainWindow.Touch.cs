@@ -55,6 +55,9 @@ public partial class MainWindow
         if(e.Source is Visual source && (source is Avalonia.Controls.TextBox or ScrollBar ||
             source.GetVisualAncestors().Any(v=>v is Avalonia.Controls.TextBox or ScrollBar))) return;
 
+        rulerPointer=null;
+        UpdateRulerPointer();
+        UpdateCoverageHover();
         e.Handled=true;
         var position=e.GetPosition(Viewport);
         touches[e.Pointer.Id]=position;

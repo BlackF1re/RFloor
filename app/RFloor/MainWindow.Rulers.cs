@@ -27,8 +27,8 @@ public partial class MainWindow
         RulerModeButton.Content=icon;
         RulerModeButton.Tip=new[]{L("Без линеек → линейки с рисками"),L("Линейки с рисками → проекция курсора"),L("Проекция курсора → без линеек")}[rulerMode];
     }
-    private void Viewport_ScrollChanged(object sender, ScrollChangedEventArgs e) => RefreshRulers();
-    private void Viewport_SizeChanged(object sender, SizeChangedEventArgs e) => RefreshRulers();
+    private void Viewport_ScrollChanged(object sender, ScrollChangedEventArgs e) { RefreshRulers(); UpdateCoverageHover(); }
+    private void Viewport_SizeChanged(object sender, SizeChangedEventArgs e) { RefreshRulers(); UpdateCoverageHover(); }
     private void Viewport_PointerMove(object sender, PointerEventArgs e)
     {
         if(e.Pointer.Type==PointerType.Touch)return;
@@ -39,9 +39,18 @@ public partial class MainWindow
             if(tapeCursor!=cursor){tapeCursor=cursor;DrawPendingTape();}
         }
         rulerPointer=e.GetPosition(Viewport);
+        hoveredSurveyPoint=e.Source is Border {Tag:"survey-point-hit"} hit ? hit : null;
         UpdateRulerPointer();
+        UpdateCoverageHover();
     }
-    private void Viewport_PointerLeave(object sender, PointerEventArgs e) { rulerPointer=null; UpdateRulerPointer(); if(routerPreview is not null){routerPreview=null;DrawRouterPreview();} if(e.Pointer.Type!=PointerType.Touch && pointPreview is not null){pointPreview=null;DrawPointPreview();} }
+    private void Viewport_PointerLeave(object sender, PointerEventArgs e)
+    {
+        rulerPointer=null; hoveredSurveyPoint=null;
+        UpdateRulerPointer();
+        UpdateCoverageHover();
+        if(routerPreview is not null){routerPreview=null;DrawRouterPreview();}
+        if(e.Pointer.Type!=PointerType.Touch && pointPreview is not null){pointPreview=null;DrawPointPreview();}
+    }
     private void RefreshRulers()
     {
         if (RulerModeButton is null || RulerRight is null || Viewport is null || ProjectionOverlay is null || PlanZoom is null) return;

@@ -202,6 +202,7 @@ public partial class MainWindow : SurfaceWindow
         DrawPointPreview();
         RefreshTabHeaders();
         RefreshRulers();
+        UpdateCoverageHover();
     }
     private static double Length(JsonObject obj) { double dx=Number(obj["b"]!["x"])-Number(obj["a"]!["x"]), dy=Number(obj["b"]!["y"])-Number(obj["a"]!["y"]); return Math.Sqrt(dx*dx+dy*dy); }
     private void DrawSegment(JsonObject obj, IBrush color, double thickness, bool dashed = false)
@@ -266,7 +267,7 @@ public partial class MainWindow : SurfaceWindow
         PlanSurface.Padding=new Thickness(left,top,Viewport.ViewportWidth,Viewport.ViewportHeight);
         PlanZoom.ScaleX=PlanZoom.ScaleY=next; Viewport.UpdateLayout();
         Viewport.ScrollToHorizontalOffset(x*next+left-target.X); Viewport.ScrollToVerticalOffset(y*next+top-target.Y);
-        ZoomLabel.Text=$"{next*100:0} %"; RefreshRulers();
+        ZoomLabel.Text=$"{next*100:0} %"; RefreshRulers(); UpdateCoverageHover();
     }
     private void ZoomIn_Click(object sender, RoutedEventArgs e) => Zoom(zoomFactor);
     private void ZoomOut_Click(object sender, RoutedEventArgs e) => Zoom(1/zoomFactor);

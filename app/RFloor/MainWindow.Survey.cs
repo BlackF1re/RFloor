@@ -305,13 +305,12 @@ public partial class MainWindow
             const double hitSize = 14;
             var position = new Point(Number(point["x"]), Number(point["y"]));
             var marker = CreatePointMarker(position, Brushes.DarkOrange, point, 6);
-            var hit = new Border { Width=hitSize, Height=hitSize, Background=Brushes.Transparent, Tip=PointTooltip(point), UseLayoutRounding=false };
+            var hit = new Border { Width=hitSize, Height=hitSize, Background=Brushes.Transparent, Tip=PointTooltip(point), UseLayoutRounding=false, Tag="survey-point-hit" };
             Canvas.SetLeft(hit, Screen(position.X)-hitSize/2);
             Canvas.SetTop(hit, Screen(position.Y)-hitSize/2);
             Plan.Children.Add(marker);
             Plan.Children.Add(hit);
-            string unit=sample?.Kind switch { "rssi" => "dBm", "quality" => "%", "ping" => L("мс"), _ => L("Мбит/с") };
-            string value=sample is { } v ? $"{v.Value:0.#} {unit}" : L("нет замера");
+            string value=sample is { } v ? $"{v.Value:0.#} {CoverageUnit(v.Kind)}" : L("нет замера");
 
             Objects.Items.Add(new ObjectEntry($"{index}. {point["name"]?.GetValue<string>() ?? L("Точка")} · {value}",point,"point"));
         }

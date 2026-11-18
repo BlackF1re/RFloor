@@ -25,9 +25,10 @@ public partial class MainWindow
             return t>1e-5 && t<1-1e-5 && u>=-1e-5 && u<=1+1e-5;
         }
     }
+    private sealed record CoverageTile(Rect Bounds,CoverageInterpolator Model,WriteableBitmap Bitmap);
     private sealed record CoverageTiles(
         CoverageInterpolator.Sample[] Samples,Rect[] Rooms,WallSegment[] Walls,double Radius,
-        (double Low,double Mid,double High) Thresholds,bool Reversed,List<(Rect Bounds,WriteableBitmap Bitmap)> Tiles);
+        (double Low,double Mid,double High) Thresholds,string Kind,List<CoverageTile> Tiles);
 
     private SurveyLayer? requestedLayer;
     private SurveyLayer activeLayer;
@@ -133,6 +134,10 @@ public partial class MainWindow
     private Color SampleColor(double value,string kind,byte alpha=255) =>
         CoverageColor(value,alpha,LayerThresholds(kind),kind is "ping" or "loss");
 
+    private static string CoverageUnit(string kind) => kind switch {
+        "rssi"=>"dBm", "quality"=>"%", "ping"=>L("мс"), _=>L("Мбит/с")
+    };
+
     private static Color CoverageColor(double value,byte alpha,(double Low,double Mid,double High) thresholds,bool reversed)
     {
         var (a,b,c)=thresholds;
@@ -163,28 +168,26 @@ public partial class MainWindow
         var samples=measured.Where(p=>p.Kind==kind || NoCoverage(p.Value,p.Kind)).Select(p=>
             new CoverageInterpolator.Sample(p.Position,NoCoverage(p.Value,p.Kind)?null:p.Value)).ToArray();
         var thresholds=LayerThresholds(kind);
-        string units=kind switch { "rssi"=>"dBm", "quality"=>"%", "ping"=>L("мс"), _=>L("Мбит/с") };
         HeatLegend.Text=L("Красный: {0:0.#} · жёлтый: {1:0.#} · зелёный: {2:0.#} {3}\nТочек: {4}. Локальная оценка между замерами (минимум 3, не на одной прямой), радиус опоры {5:0.##} м. Прозрачный — нет покрытия или недостаточно данных.",
-            thresholds.Low,thresholds.Mid,thresholds.High,units,samples.Length,CoverageRadius);
+            thresholds.Low,thresholds.Mid,thresholds.High,CoverageUnit(kind),samples.Length,CoverageRadius);
 
         var rooms=Rooms.OfType<JsonObject>().Select(r=>new Rect(Number(r["x"]),Number(r["y"]),Number(r["w"]),Number(r["h"]))).ToArray();
         var walls=Walls.OfType<JsonObject>().Select(w=>new WallSegment(End(w,"a"),End(w,"b"))).ToArray();
         double radius=CoverageRadius;
-        bool reversed=kind=="ping";
-        if(coverageTiles is not {} cache || cache.Radius!=radius || cache.Thresholds!=thresholds || cache.Reversed!=reversed ||
+        if(coverageTiles is not {} cache || cache.Radius!=radius || cache.Thresholds!=thresholds || cache.Kind!=kind ||
            !cache.Samples.SequenceEqual(samples) || !cache.Rooms.SequenceEqual(rooms) || !cache.Walls.SequenceEqual(walls)) {
             if(coverageTiles is {} old)
                 foreach(var tile in old.Tiles) tile.Bitmap.Dispose();
-            cache=new(samples,rooms,walls,radius,thresholds,reversed,[]);
+            cache=new(samples,rooms,walls,radius,thresholds,kind,[]);
             if(samples.Count(p=>p.Value.HasValue)>=3) {
                 foreach(var room in rooms) {
-                    var tile=BuildCoverageTile(room,samples,walls,radius,thresholds,reversed);
+                    var tile=BuildCoverageTile(room,samples,walls,radius,thresholds,kind=="ping");
                     if(tile is {} result) cache.Tiles.Add(result);
                 }
             }
             coverageTiles=cache;
         }
-        foreach(var (bounds,bitmap) in cache.Tiles) {
+        foreach(var (bounds,_,bitmap) in cache.Tiles) {
             var image=new Image {Source=bitmap,Width=bounds.Width*Scale,Height=bounds.Height*Scale,
                 Stretch=Stretch.Fill,IsHitTestVisible=false,UseLayoutRounding=false};
             RenderOptions.SetBitmapInterpolationMode(image,BitmapInterpolationMode.MediumQuality);
@@ -192,7 +195,7 @@ public partial class MainWindow
         }
     }
 
-    private static (Rect Bounds,WriteableBitmap Bitmap)? BuildCoverageTile(Rect room,CoverageInterpolator.Sample[] samples,
+    private static CoverageTile? BuildCoverageTile(Rect room,CoverageInterpolator.Sample[] samples,
         WallSegment[] walls,double radius,(double Low,double Mid,double High) thresholds,bool reversed)
     {
         var local=samples.Where(p=>p.Position.X>=room.Left-WallFaceTolerance && p.Position.X<=room.Right+WallFaceTolerance &&
@@ -212,7 +215,7 @@ public partial class MainWindow
             for(int y=0;y<height;y++)
                 Marshal.Copy(pixels,y*width*4,IntPtr.Add(frame.Address,y*frame.RowBytes),width*4);
         }
-        return (bounds,bitmap);
+        return new(bounds,model,bitmap);
 
         bool Blocked(Point a,Point b)
         {
@@ -220,5 +223,46 @@ public partial class MainWindow
                 if(wall.Crosses(a,b)) return true;
             return false;
         }
+    }
+
+    private Border? hoveredSurveyPoint;
+    private readonly SolidColorBrush coverageHoverColor=new();
+
+    private void UpdateCoverageHover()
+    {
+        if(CoverageHoverBadge is null) return;
+        double width=Viewport.ViewportWidth,height=Viewport.ViewportHeight;
+        if(!surveyMode || activeSession is null || activeLayer.Kind==LayerKind.Off || panAnchor is not null ||
+           coverageTiles is not {Tiles.Count:>0} cache || rulerPointer is not {} pointer ||
+           pointer.X<0 || pointer.Y<0 || pointer.X>=width || pointer.Y>=height ||
+           Viewport.TranslatePoint(pointer,Plan) is not {} local ||
+           hoveredSurveyPoint is {} hit && ReferenceEquals(hit.Parent,Plan) && hit.Bounds.Contains(local)) {
+            CoverageHoverBadge.IsVisible=false;
+            return;
+        }
+
+        var position=World(local,false);
+        // The map paints later rooms over earlier rooms where their areas overlap.
+        (double Value,double Confidence)? estimate=null;
+        for(int i=cache.Tiles.Count-1;i>=0 && estimate is null;i--) {
+            var tile=cache.Tiles[i];
+            if(tile.Bounds.Contains(position)) estimate=tile.Model.Estimate(position);
+        }
+        if(estimate is not {} sample || WallFaces().Any(wall=>InsideWall(position,wall))) {
+            CoverageHoverBadge.IsVisible=false;
+            return;
+        }
+
+        CoverageHoverText.Text=$"{sample.Value:0.#} {CoverageUnit(cache.Kind)}";
+        coverageHoverColor.Color=CoverageColor(sample.Value,255,cache.Thresholds,cache.Kind=="ping");
+        CoverageHoverMarker.Fill=coverageHoverColor;
+        CoverageHoverBadge.IsVisible=true;
+        CoverageHoverBadge.Measure(Size.Infinity);
+        var size=CoverageHoverBadge.DesiredSize;
+        const double gap=13, inset=2;
+        double x=pointer.X+gap+size.Width<=width-inset ? pointer.X+gap : pointer.X-gap-size.Width;
+        double y=pointer.Y-gap-size.Height>=inset ? pointer.Y-gap-size.Height : pointer.Y+gap;
+        Canvas.SetLeft(CoverageHoverBadge,Math.Clamp(x,inset,Math.Max(inset,width-size.Width-inset)));
+        Canvas.SetTop(CoverageHoverBadge,Math.Clamp(y,inset,Math.Max(inset,height-size.Height-inset)));
     }
 }

@@ -4,7 +4,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -83,15 +85,45 @@ internal static class UnifiedDocument {
         double w=room["w"]!.GetValue<double>(),h=room["h"]!.GetValue<double>();
         for(int i=0;i<3;i++)
             blank["points"]!.AsArray().Add(new JsonObject {["id"]=$"tile-{i}",["x"]=x+w*(i==1?.7:.3),["y"]=y+h*(i==2?.7:.3),
-                ["band"]="5",["measurements"]=new JsonObject {["rssi"]=-50-i}});
+                ["band"]="5",["measurements"]=new JsonObject {["rssi"]=-50-i,
+                    ["pings"]=new JsonArray(new JsonObject {["target"]="192.168.2.1",["avg"]=20+40*i})}});
         Call("SwitchMode",true);
         var plan=view.FindControl<Canvas>("Plan")!;
         var firstTile=plan.Children.OfType<Image>().Single().Source;
         Require(firstTile is Avalonia.Media.Imaging.WriteableBitmap,"Coverage was not rendered as a continuous image.");
         Call("RenderPlan");
         Require(ReferenceEquals(firstTile,plan.Children.OfType<Image>().Single().Source),"An unchanged plan rerasterized the layer.");
-        picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
+        host.Show();Dispatcher.UIThread.RunJobs();host.UpdateLayout();
+        var badge=view.FindControl<Border>("CoverageHoverBadge")!;
+        var hoverText=view.FindControl<TextBlock>("CoverageHoverText")!;
+        var hoverMarker=view.FindControl<Avalonia.Controls.Shapes.Ellipse>("CoverageHoverMarker")!;
+        Point OnMap(double u,double v)=>plan.TranslatePoint(new Point((double)Call("Screen",x+w*u)!, (double)Call("Screen",y+h*v)!),host)!.Value;
+        void MoveTo(Point at) {host.MouseMove(at);Dispatcher.UIThread.RunJobs();}
+        var probe=OnMap(.43,.37);
+        MoveTo(probe);
+        Require(badge.IsVisible && hoverText.Text==$"{-50.675:0.#} dBm" && hoverMarker.Fill is SolidColorBrush,
+            "Hover did not show the local, unsnapped signal estimate and color.");
+        var signalColor=((SolidColorBrush)hoverMarker.Fill!).Color;
+        host.MouseWheel(probe,new Vector(0,1),RawInputModifiers.Control);Dispatcher.UIThread.RunJobs();
+        Require(badge.IsVisible && hoverText.Text==$"{-50.675:0.#} dBm","Cursor-anchored zoom changed the hover estimate.");
+        Layers()[1].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        var latency=hoverText.Text!.Split(' ',2);
+        Require(badge.IsVisible && latency.Length==2 && latency[1]==Localization.L("мс") &&
+            double.TryParse(latency[0],out double milliseconds) && Math.Abs(milliseconds-47)<1 &&
+            ((SolidColorBrush)hoverMarker.Fill!).Color!=signalColor,"Changing layers did not refresh the estimate and color.");
+        MoveTo(OnMap(.8,.8));
+        Require(!badge.IsVisible,"Hover displayed an estimate outside the surveyed area.");
+        MoveTo(OnMap(.3,.3));
+        Require(!badge.IsVisible,"The interpolated badge obscured a measurement point's own tooltip.");
+        MoveTo(OnMap(.43,.37));
+        Require(badge.IsVisible,"Returning to the surveyed area did not restore the estimate.");
+        MoveTo(new Point(2,2));
+        Require(!badge.IsVisible,"Leaving the viewport left the hover badge visible.");
+        MoveTo(OnMap(.43,.37));
+        Layers()[^1].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Require(!badge.IsVisible,"Turning layers off left the hover badge visible.");
         Require(!plan.Children.OfType<Image>().Any(),"Turning layers off left a coverage image on the plan.");
+        host.Hide();
         host.Width=1;view.Measure(new Size(1,800));view.Arrange(new Rect(0,0,1,800));Call("UpdateResponsiveLayout");
         foreach(double width in new[]{360d,412d,1440d}){
             host.Width=width;host.Height=800;view.Measure(new Size(width,800));view.Arrange(new Rect(0,0,width,800));Call("UpdateResponsiveLayout");
