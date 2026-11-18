@@ -96,7 +96,7 @@ public partial class MainWindow {
         return RoomWallGeometry(a,b,room,normal);
     }
 
-    private Geometry RoomWallGeometry(Point a,Point b,JsonObject room,Vector normal)
+    private Geometry RoomWallGeometry(Point a,Point b,JsonObject room,Vector normal,bool assumeCorners=false)
     {
         Point sa=new(Screen(a.X),Screen(a.Y)),sb=new(Screen(b.X),Screen(b.Y));
         Vector along=sb-sa;
@@ -113,6 +113,8 @@ public partial class MainWindow {
                 var inset=intoWall*Math.Min(WallStroke,length*.49);
                 return (pixel+inset,outer+inset);
             }
+            if(!assumeCorners && !HasRoomCornerReturn(room,vertex,normal))
+                return (pixel,outer);
             return (pixel,outer-intoWall*WallStroke);
         }
         var (ia,oa)=EndCap(a,sa,along);
@@ -122,14 +124,25 @@ public partial class MainWindow {
         return RegisterContour(polygon,[ia,ib,ob,oa]);
     }
 
+    private bool HasRoomCornerReturn(JsonObject room,Point vertex,Vector normal)
+    {
+        var inward=vertex-normal/Scale;
+        return RoomJunctionWalls()[WallAxis(vertex,inward)].Any(w =>
+            w["roomId"]?.ToString()==room["id"]?.ToString() &&
+            SegmentDistance(vertex,w).Distance<1e-6 &&
+            OverlapInterval(vertex,inward,End(w,"a"),End(w,"b")) is not null);
+    }
+
+    private ILookup<(bool Vertical, double Axis), JsonObject> RoomJunctionWalls() =>
+        roomJunctionWalls ??= Walls.OfType<JsonObject>().Where(w=>w["roomId"] is not null)
+            .ToLookup(w=>WallAxis(End(w,"a"),End(w,"b")));
+
     private bool ForeignWallAtCorner(JsonObject room,Point vertex,Vector normal,Vector intoWall)
     {
         var roomId=room["id"]?.ToString();
-        roomJunctionWalls ??= Walls.OfType<JsonObject>().Where(w=>w["roomId"] is not null)
-            .ToLookup(w=>WallAxis(End(w,"a"),End(w,"b")));
         // The adjoining wall follows the perpendicular edge toward the current room's interior.
         var inward=vertex-normal/Scale;
-        return roomJunctionWalls[WallAxis(vertex,inward)].Any(w =>
+        return RoomJunctionWalls()[WallAxis(vertex,inward)].Any(w =>
             w["roomId"]?.ToString()!=roomId &&
             OverlapInterval(vertex,inward,End(w,"a"),End(w,"b")) is not null &&
             SegmentDistance(vertex,w).Distance<1e-6 &&

@@ -61,6 +61,29 @@ public partial class MainWindow
         return (first, last);
     }
 
+    private (JsonObject Room, Point A, Point B)? FindRoomWallRepair(Point start, Point end)
+    {
+        if(!SnapActive) return null;
+        double tolerance=Math.Max(GridSize*.55,12/(Scale*PlanZoom.ScaleX));
+        (JsonObject, Point, Point)? best=null;
+        double bestDistance=double.PositiveInfinity;
+        foreach(var room in Rooms.OfType<JsonObject>())
+        foreach(var (a,b) in RoomEdges(room))
+        foreach(var (from,to) in UncoveredSegments(a,b))
+        {
+            double distance=Math.Min(
+                Math.Max(((Vector)(start-from)).Length,((Vector)(end-to)).Length),
+                Math.Max(((Vector)(start-to)).Length,((Vector)(end-from)).Length));
+            if(distance>tolerance || distance>=bestDistance || ((Vector)(to-from)).Length<.15)continue;
+            bestDistance=distance;
+            best=(room,from,to);
+        }
+        return best;
+    }
+
+    private (Point Start,Point End) SnapDrawnWall(Point start,Point end) =>
+        SnapActive?AlignConstructionLine(SurfaceSnap(start)??GridPosition(start),SurfaceSnap(end)??GridPosition(end),WallStroke):(start,end);
+
     private static bool BelongsToRoom(JsonObject segment, JsonObject room) =>
         (room["id"] is {} id && segment["roomId"]?.ToString() == id.ToString()) ||
         RoomEdges(room).Any(edge => OverlapInterval(edge.A, edge.B, End(segment, "a"), End(segment, "b")) is not null);

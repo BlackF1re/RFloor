@@ -7,13 +7,14 @@ public partial class MainWindow
     {
         var obj=entry.Item;
         if(entry.Kind=="decoration")return area.Contains(DecorationBounds(obj));
-        if(entry.Kind is "wall" or "door")return area.Contains(End(obj,"a")) && area.Contains(End(obj,"b"));
+        if(IsPlanSegment(entry.Kind))return area.Contains(End(obj,"a")) && area.Contains(End(obj,"b"));
         if(entry.Kind=="room")return area.Contains(new Rect(Number(obj["x"]),Number(obj["y"]),Number(obj["w"]),Number(obj["h"])));
         return area.Contains(new Point(Number(obj["x"]),Number(obj["y"])));
     }
     private Rectangle? marquee;
     private void SelectMarquee(Point first, Point last, Point position)
     {
+        selectedCallout=null;
         marqueeStart=marqueeEnd=null;
         ClearMarquee();
         var area=Rects.Between(first,last);
@@ -57,17 +58,14 @@ public partial class MainWindow
         }
     }
     private static string ObjectName(JsonObject item,string fallback) => item["name"]?.GetValue<string>() ?? fallback;
-    private void SelectAll_Click(object sender,RoutedEventArgs e) => Objects.SelectAll();
+    private void SelectAll_Click(object sender,RoutedEventArgs e) {selectedCallout=null;Objects.SelectAll();}
     private async void DeleteSelection_Click(object sender,RoutedEventArgs e)
     {
         if(measurementCancellation is not null)return;
-        var selected=Objects.SelectedItems.Cast<ObjectEntry>().Select(v=>v.Item).ToList();
-        if (surveyMode) { await DeleteSurveyPointsAsync(selected); return; }
+        var selected=Objects.SelectedItems.Cast<ObjectEntry>().ToArray();
+        if(surveyMode){await DeleteSurveyPointsAsync(selected.Select(v=>v.Item).ToList());return;}
         CommitInlineRename();ResetPointerTools();
-        if(selected.Count==0)return;
-        string before=document.ToJsonString(); int count=undo.Count;
-        foreach(var item in selected) { var entry=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(v=>ReferenceEquals(v.Item,item)); if(entry is null)continue; Objects.SelectedItem=entry; Delete_Click(sender,e); }
-        while(undo.Count>count)undo.Pop(); undo.Push(before);
+        DeletePlanEntries(selected);
     }
     private void Objects_Rename(object sender,PointerPressedEventArgs e)
     {
@@ -78,6 +76,7 @@ public partial class MainWindow
 
     private void Objects_OpenCard(object? sender,PointerReleasedEventArgs e)
     {
+        selectedCallout=null;
         if(e.Pointer.Type!=PointerType.Touch && e.Button()!=MouseButton.Left)return;
         if(e.Source is Visual source && source.GetSelfAndVisualAncestors().OfType<ListBoxItem>().FirstOrDefault() is {IsSelected:true})
             ShowSelectedObjectCard(e.GetPosition(Viewport));

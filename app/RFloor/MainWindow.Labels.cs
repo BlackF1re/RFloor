@@ -13,6 +13,7 @@ public partial class MainWindow
         new("router", "Роутер", true, "{name}", "{name} {x} {y}"),
         new("decoration", "Ориентир", false, "{name}", "{name} {width} {height} {area} {length} {x} {y}"),
         new("text", "Подпись", true, "{name}", "{name} {x} {y}"),
+        new("tape", "Рулетка", true, "{name}\n{length}", "{name} {length} {x} {y}"),
         new("point", "Точка замера", true, "{name}", "{name} {x} {y}")
     ];
 
@@ -45,11 +46,11 @@ public partial class MainWindow
     {
         var obj = entry.Item;
         var rule = RuleFor(entry);
-        string format = LabelString(DefaultLabel(rule), "format") ?? rule.Format;
-        bool segment = entry.Kind is "wall" or "door";
+        string format = LabelString(obj["label"] as JsonObject,"format") ?? LabelString(DefaultLabel(rule), "format") ?? rule.Format;
+        bool segment = IsPlanSegment(entry.Kind);
         double width = Numeric(obj["w"], out var w) ? w : 0, height = Numeric(obj["h"], out var h) ? h : 0;
         var position = segment ? End(obj, "a") : new Point(Number(obj["x"]), Number(obj["y"]));
-        if (rule.Kind == "router") position += new Vector(RouterSize / Scale / 2, RouterSize / Scale / 2);
+        if (rule.Kind == "router") position = DecorationBounds(obj).Center;
         double length = segment ? Length(obj) : Math.Sqrt(width * width + height * height);
         double area = obj["kind"]?.ToString() switch { "ellipse" => width * height * Math.PI / 4, "line" => 0, _ => width * height };
         return labelToken.Replace(format, match => match.Groups[1].Value switch
@@ -146,6 +147,12 @@ public partial class MainWindow
             (double)(size.Value ?? 11), bold.IsChecked == true, italic.IsChecked == true, underline.IsChecked == true);
     }
 
+    private double ObjectLabelOpacity(JsonObject obj) =>
+        Numeric((obj["label"] as JsonObject)?["opacity"],out var opacity)?Math.Clamp(opacity,0,1):labelOpacity;
+
+    private readonly NumericUpDown propertyLabelOpacity = new() {Minimum=0,Maximum=100,Increment=5,FormatString="0.##"};
+    private readonly TextBlock propertyLabelOpacityTitle = new();
+    private double initialLabelOpacity;
     private readonly ComboBox propertyLabelVisibility = new();
     private readonly CheckBox propertyCustomLabel = new();
     private LabelStyleFields? propertyLabelFields;
@@ -158,9 +165,14 @@ public partial class MainWindow
             propertyLabelFields = fields;
             propertyCustomLabel.IsCheckedChanged += (_,_) => fields.IsVisible = propertyCustomLabel.IsChecked == true;
             PropertyLabelPanel.Children.Add(propertyLabelVisibility);
+            PropertyLabelPanel.Children.Add(propertyLabelOpacityTitle);
+            PropertyLabelPanel.Children.Add(propertyLabelOpacity);
             PropertyLabelPanel.Children.Add(propertyCustomLabel);
             PropertyLabelPanel.Children.Add(fields);
         }
+        propertyLabelOpacityTitle.Text=L("Непрозрачность подписи, %");
+        initialLabelOpacity=ObjectLabelOpacity(selected.Item);
+        propertyLabelOpacity.Value=(decimal)(initialLabelOpacity*100);
         propertyLabelVisibility.ItemsSource = new[] { L("Подпись по умолчанию"), L("Показывать подпись"), L("Скрывать подпись") };
         propertyLabelVisibility.SelectedIndex = LabelVisibilityOverride(selected.Item) switch { true => 1, false => 2, _ => 0 };
         propertyCustomLabel.Content = L("Своё оформление");
@@ -183,6 +195,8 @@ public partial class MainWindow
     {
         SetObjectLabelVisibility(obj, propertyLabelVisibility.SelectedIndex switch { 1 => true, 2 => false, _ => null });
         var options = obj["label"] as JsonObject ?? new JsonObject();
+        double opacity=(double)(propertyLabelOpacity.Value??(decimal)(initialLabelOpacity*100))/100;
+        if(Math.Abs(opacity-initialLabelOpacity)>1e-6)options["opacity"]=opacity;
         if (propertyCustomLabel.IsChecked == true) options["typography"] = propertyLabelFields!.Read().ToJson();
         else options.Remove("typography");
         if (options.Count == 0) obj.Remove("label");

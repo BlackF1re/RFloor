@@ -15,17 +15,26 @@ public partial class MainWindow
         var obj=new JsonObject {["id"]=Id(),["filled"]=drawingFilled,["kind"]=tool,["name"]=tool=="text"?L("Новая подпись"):L("Ориентир"),["x"]=Math.Min(a.X,b.X),["y"]=Math.Min(a.Y,b.Y),["w"]=Math.Max(.1,Math.Abs(b.X-a.X)),["h"]=Math.Max(.1,Math.Abs(b.Y-a.Y)),["reverse"]=(b.X-a.X)*(b.Y-a.Y)<0};
         if(tool=="line"){obj["w"]=Math.Abs(b.X-a.X);obj["h"]=Math.Abs(b.Y-a.Y);}
         AlignDecoration(obj);Decorations.Add(obj);dirty=true;
-        if(tool=="text"){RenderPlan();BeginInlineRename(new ObjectEntry(L("Подпись"),obj,"decoration"));}
+        if(tool=="text")
+        {
+            SetTool("select");
+            if(Objects.Items.OfType<ObjectEntry>().FirstOrDefault(e=>ReferenceEquals(e.Item,obj)) is {} entry)
+            {
+                Objects.SelectedItem=entry;
+                BeginInlineRename(entry);
+            }
+        }
     }
     private Rect DecorationBounds(JsonObject obj)
     {
         double w=Number(obj["w"]),h=Number(obj["h"]);
-        if(obj["kind"]?.ToString()=="router")w=h=RouterSize/Scale;
+        if(obj["kind"]?.ToString()=="router"){if(w<=0)w=RouterSize/Scale;if(h<=0)h=RouterSize/Scale;}
         if(obj["kind"]?.ToString()=="text") {
             var text=LabelText(new ObjectEntry(L("Подпись"),obj,"decoration"));
             text.Padding=new Thickness(5,3,5,3);
             text.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));
-            w=text.DesiredSize.Width/Scale;h=text.DesiredSize.Height/Scale;
+            w=Numeric(obj["boxWidth"],out var bw) && bw>0?bw:text.DesiredSize.Width/Scale;
+            h=Numeric(obj["boxHeight"],out var bh) && bh>0?bh:text.DesiredSize.Height/Scale;
         }
         return new Rect(Number(obj["x"]),Number(obj["y"]),w,h);
     }
@@ -71,17 +80,19 @@ public partial class MainWindow
             var entry=new ObjectEntry(L("Подпись"),obj,"decoration");
             if(accent is null && !IsLabelVisible(entry))return;
             text=LabelText(entry);
-            if(accent is null)opacity=labelOpacity;
+            text.TextTrimming=TextTrimming.CharacterEllipsis;
+            text.TextWrapping=TextWrapping.Wrap;
+            if(accent is null)opacity=ObjectLabelOpacity(obj);
         }
         var stroke=accent??Brushes.Gray;
         bool filled=obj["filled"]?.GetValue<bool>()!=false;
         IBrush fill=accent is null ? (filled?SolidHatch:ClearHatch) : (filled?HighlightedSolidHatch:HighlightedClearHatch);
         FrameworkElement visual=kind switch {
-            "router"=>new Image {Source=RouterImage(accent),Width=w,Height=h,
+            "router"=>new Image {Source=RouterImage(accent),Width=w,Height=h,Stretch=Stretch.Fill,
                 Clip=RouterClip(new Rect(bounds.Position+delta,bounds.Size))},
             "ellipse"=>new Ellipse {Width=w,Height=h,Stroke=stroke,StrokeThickness=1.5,Fill=fill},
             "line"=>new Line {X1=0,Y1=obj["reverse"]?.GetValue<bool>()==true?h:0,X2=w,Y2=obj["reverse"]?.GetValue<bool>()==true?0:h,Stroke=stroke,StrokeThickness=2},
-            "text"=>new Border {CornerRadius=new CornerRadius(6),Background=accent??Brushes.White,Padding=new Thickness(5,3,5,3),Child=text},
+            "text"=>new Border {Width=w,Height=h,ClipToBounds=true,CornerRadius=new CornerRadius(6),Background=accent??Brushes.White,Padding=new Thickness(5,3,5,3),Child=text},
             _=>new Rectangle {Width=w,Height=h,RadiusX=obj["kind"]?.ToString()=="roundRect"?4:0,RadiusY=obj["kind"]?.ToString()=="roundRect"?4:0,Stroke=stroke,StrokeThickness=1.5,Fill=fill}
         };
         var host=new Canvas {Width=Math.Max(w,1),Height=Math.Max(h,1),IsHitTestVisible=false,Tag=(object?)tag??obj,Opacity=opacity};host.Children.Add(visual);

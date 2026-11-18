@@ -28,6 +28,9 @@ public partial class MainWindow
                 point["name"] = L("Точка {0}", number);
         project["format"]="rfloor.plan";
         project.Remove("planSettings");
+        if(project["geometry"]?["walls"] is JsonArray walls)
+            foreach(var oldOpening in walls.OfType<JsonObject>().Where(w=>w["name"]?.ToString() is "Проём" or "Opening").ToArray())
+                RestoreOpeningWall(walls,oldOpening,legacy:true);
     }
 
     private void InitializeStartScreen()
@@ -51,11 +54,12 @@ public partial class MainWindow
 
     private string SafePlanName()
     {
-        string name=document["name"]?.ToString()??L("Новый план");
+        string name=document["name"]?.ToString()?.Trim()??L("Новый план");
         name=PlanNameWithoutExtension(name);
         string stem=string.Concat(name.Select(c=>Path.GetInvalidFileNameChars().Contains(c)?'_':c));
+        stem=stem.Trim().TrimEnd('.');
         if(string.IsNullOrWhiteSpace(stem))stem=L("Новый план");
-        return OperatingSystem.IsAndroid()?stem:stem+".rfplan";
+        return stem;
     }
 
     private static string PlanNameWithoutExtension(string name)

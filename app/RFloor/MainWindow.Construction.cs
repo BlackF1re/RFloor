@@ -68,17 +68,26 @@ public partial class MainWindow
     {
         var span=DrawnOpening(start,end);
         if(span is not {} cut || ((Vector)(cut.B-cut.A)).Length<.15){Status.Text=L("Протяните проём вдоль одного участка стены (не менее 0,15 м).");return;}
+        CutWall(cut.Wall,cut.A,cut.B);
+    }
+
+    private void CutWall(JsonObject wall,Point a,Point b)
+    {
         Remember();
-        var first=cut.Wall.DeepClone().AsObject();var second=cut.Wall.DeepClone().AsObject();
-        first["id"]=Id();first["b"]=Point(cut.A.X,cut.A.Y);
-        second["id"]=Id();second["a"]=Point(cut.B.X,cut.B.Y);
-        var opening=new JsonObject {["id"]=Id(),["name"]=L("Проём"),["a"]=Point(cut.A.X,cut.A.Y),["b"]=Point(cut.B.X,cut.B.Y)};
-        if(cut.Wall["roomId"] is {} roomId)opening["roomId"]=roomId.DeepClone();
-        Walls.Remove(cut.Wall);Walls.Add(first);Walls.Add(second);Doors.Add(opening);dirty=true;Status.Text=L("Проём добавлен.");
+        var first=wall.DeepClone().AsObject();var second=wall.DeepClone().AsObject();
+        first["b"]=Point(a.X,a.Y);
+        second["id"]=Id();second.Remove("label");second.Remove("labelOffset");second["a"]=Point(b.X,b.Y);
+        var opening=new JsonObject {["id"]=Id(),["name"]=L("Проём"),["a"]=Point(a.X,a.Y),["b"]=Point(b.X,b.Y)};
+        if(wall["roomId"] is {} roomId)opening["roomId"]=roomId.DeepClone();
+        opening["thickness"]=wall["thickness"]?.DeepClone();
+        Walls.Remove(wall);Walls.Add(first);Walls.Add(second);Doors.Add(opening);dirty=true;Status.Text=L("Проём добавлен.");
     }
     private void DrawConstruction(Point start,Point end)
     {
-        if(tool is "wall" or "line")(start,end)=AlignConstructionLine(start,end,tool=="wall"?WallStroke:2);
+        var repair=tool=="wall"?FindRoomWallRepair(start,end):null;
+        if(repair is {} gap)(start,end)=(gap.A,gap.B);
+        else if(tool=="wall")(start,end)=SnapDrawnWall(start,end);
+        else if(tool=="line")(start,end)=AlignConstructionLine(start,end,2);
         if(tool is "rect" or "roundRect" or "ellipse" or "line" or "text") {
             var obj=new JsonObject {["kind"]=tool,["filled"]=drawingFilled,["name"]=L("Подпись"),["x"]=Math.Min(start.X,end.X),["y"]=Math.Min(start.Y,end.Y),["w"]=Math.Abs(end.X-start.X),["h"]=Math.Abs(end.Y-start.Y),["reverse"]=(end.X-start.X)*(end.Y-start.Y)<0};
             AlignDecoration(obj);DrawDecoration(obj,new Vector(),Brushes.DarkOrange,SelectionOpacity);
@@ -94,8 +103,12 @@ public partial class MainWindow
                 if (axis.Length<1e-8) continue;
                 Vector outward=new Vector(axis.Y,-axis.X)/axis.Length;
                 foreach (var (from,to) in UncoveredSegments(a,b))
-                    DrawSegmentHighlight(RoomWallGeometry(from,to,room,outward),default,SelectionOpacity,Brushes.DarkOrange,null);
+                    DrawSegmentHighlight(RoomWallGeometry(from,to,room,outward, assumeCorners:true),default,SelectionOpacity,Brushes.DarkOrange,null);
             }
+        }
+        else if(repair is {} side) {
+            Vector axis=end-start;
+            DrawSegmentHighlight(RoomWallGeometry(start,end,side.Room,new Vector(axis.Y,-axis.X)/axis.Length),default,SelectionOpacity,Brushes.DarkOrange,null);
         }
         else {
             if(tool=="door" && DrawnOpening(start,end) is {} span) {

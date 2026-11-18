@@ -107,8 +107,24 @@ public partial class MainWindow : SurfaceWindow
         var storage=TopLevel.GetTopLevel(this)!.StorageProvider;
         var files=await storage.OpenFilePickerAsync(new FilePickerOpenOptions {Title=L("Открыть"),AllowMultiple=false,FileTypeFilter=[PlanFileType]});
         if(files.Count==0)return;
+        await OpenStorageProjectAsync(files[0]);
+    }
+    internal async Task OpenLocalProjectAsync(string filename)
+    {
+        try
+        {
+            var storage=TopLevel.GetTopLevel(this)!.StorageProvider;
+            if(await storage.TryGetFileFromPathAsync(System.IO.Path.GetFullPath(filename)) is {} file)
+                await OpenStorageProjectAsync(file);
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            MessageBox.Show(this,ex.Message,"RFloor");
+        }
+    }
+    private async Task OpenStorageProjectAsync(IStorageFile file)
+    {
         try {
-            var file=files[0];
             await using var input=await file.OpenReadAsync();
             if(input.CanSeek && input.Length>8_000_000)throw new FormatException(L("Файл слишком велик."));
             using var reader=new StreamReader(input);string json=await reader.ReadToEndAsync();
@@ -123,14 +139,47 @@ public partial class MainWindow : SurfaceWindow
     {
         if(activeSession is null)return false;CommitInlineRename();if(!CommitDocumentSettings())return false;
         try {
-            IStorageFile? file=path is not null && !saveAs?storageFiles.GetValueOrDefault(path):null;
-            file??=await TopLevel.GetTopLevel(this)!.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions {Title=L("Сохранить"),SuggestedFileName=SafePlanName(),DefaultExtension="rfplan",FileTypeChoices=[PlanFileType],ShowOverwritePrompt=true});
-            if(file is null)return false;
-            string local=file.TryGetLocalPath()??"";string json=document.ToJsonString(new JsonSerializerOptions {WriteIndented=true})+Environment.NewLine;
-            if(local.Length>0) {string temp=local+"."+Guid.NewGuid().ToString("N")+".tmp";try {await File.WriteAllTextAsync(temp,json);File.Move(temp,local,true);}finally {if(File.Exists(temp))File.Delete(temp);}}
-            else {await using var output=await file.OpenWriteAsync();if(output.CanSeek)output.SetLength(0);await using var writer=new StreamWriter(output);await writer.WriteAsync(json);}
+            var storage=TopLevel.GetTopLevel(this)!.StorageProvider;
+            IStorageFile? file=null;
+            string? local=null;
+            if(path is not null && !saveAs)
+            {
+                file=storageFiles.GetValueOrDefault(path);
+                local=file?.TryGetLocalPath();
+                if(file is null && Uri.TryCreate(path,UriKind.Absolute,out var uri) && uri.IsFile)
+                    local=uri.LocalPath;
+            }
+            if(file is null && local is null)
+                file=await storage.SaveFilePickerAsync(new FilePickerSaveOptions {Title=L("Сохранить"),SuggestedFileName=SafePlanName(),DefaultExtension="rfplan",FileTypeChoices=[PlanFileType],ShowOverwritePrompt=true});
+            local??=file?.TryGetLocalPath();
+            if(file is null && local is null)return false;
+            string json=document.ToJsonString(new JsonSerializerOptions {WriteIndented=true})+Environment.NewLine;
+            if(local is not null)
+            {
+                var destination=NamedPlanPath(local,SafePlanName());
+                bool original=string.Equals(destination,local,StringComparison.Ordinal);
+                if(!original && File.Exists(destination) &&
+                    await MessageBox.Ask(this,L("Заменить файл «{0}»?",System.IO.Path.GetFileName(destination)),L("Сохранить"),MessageBoxButton.YesNoCancel,MessageBoxImage.Question)!=MessageBoxResult.Yes)
+                    return false;
+                string temp=destination+"."+Guid.NewGuid().ToString("N")+".tmp";
+                try {await File.WriteAllTextAsync(temp,json);File.Move(temp,destination,true);}
+                finally {if(File.Exists(temp))File.Delete(temp);}
+                path=original && file is not null?file.Path.ToString():new Uri(destination).AbsoluteUri;
+                if(original && file is not null)storageFiles[path]=file;
+                dirty=false;RefreshTabHeaders();Status.Text=L("Сохранено: {0}",System.IO.Path.GetFileName(destination));return true;
+            }
+            {await using var output=await file!.OpenWriteAsync();if(output.CanSeek)output.SetLength(0);await using var writer=new StreamWriter(output);await writer.WriteAsync(json);}
             path=file.Path.ToString();storageFiles[path]=file;dirty=false;RefreshTabHeaders();Status.Text=L("Сохранено: {0}",file.Name);return true;
         }catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidOperationException){MessageBox.Show(this,ex.Message,L("Не удалось сохранить"));return false;}
+    }
+    internal static string NamedPlanPath(string local,string fallback)
+    {
+        string name=System.IO.Path.GetFileName(local);
+        string stem=PlanNameWithoutExtension(name).Trim();
+        if(stem.Length==0)stem=fallback;
+        if(name.EndsWith(".rfplan",StringComparison.OrdinalIgnoreCase) && name.Length==stem.Length+7 && name.StartsWith(stem,StringComparison.Ordinal))
+            return local;
+        return System.IO.Path.Combine(System.IO.Path.GetDirectoryName(local)??"",stem+".rfplan");
     }
     private async void Save_Click(object sender,RoutedEventArgs e)=>await Save();
     private async void SaveAs_Click(object sender,RoutedEventArgs e)=>await Save(true);
@@ -147,7 +196,7 @@ public partial class MainWindow : SurfaceWindow
         wallFaces=null;
         openingFaces=null;
         roomJunctionWalls=null;
-        foreach (var (items, prefix) in new[] { (Rooms, L("Комната")), (Walls, L("Стена")), (Doors, L("Проём")), (Points, L("Точка")) })
+        foreach (var (items, prefix) in new[] { (Rooms, L("Комната")), (Walls, L("Стена")), (Doors, L("Проём")), (Points, L("Точка")), (Tapes,L("Рулетка")) })
             for (int i=0; i<items.Count; i++)
                 if (string.IsNullOrWhiteSpace(items[i]?["name"]?.GetValue<string>())) items[i]!["name"] = $"{prefix} {i+1}";
         var previousSelection = (Objects.SelectedItem as ObjectEntry)?.Item;
@@ -189,6 +238,7 @@ public partial class MainWindow : SurfaceWindow
         foreach (var node in Walls) { var wall=node!.AsObject(); if (!surveyMode) Objects.Items.Add(new ObjectEntry(L("{0} · {1:0.##} м", ObjectName(wall,L("Стена")), Length(wall)), wall, "wall")); }
         foreach (var node in Doors) { var door=node!.AsObject(); DrawOpening(door); if (!surveyMode) Objects.Items.Add(new ObjectEntry(L("{0} · {1:0.##} м", ObjectName(door,L("Проём")), Length(door)), door, "door")); }
         if (surveyMode) RenderPoints();
+        else foreach(var tape in Tapes.OfType<JsonObject>()) Objects.Items.Add(new ObjectEntry(ObjectName(tape,L("Рулетка")),tape,"tape"));
         DrawConstructionPreview();
         DrawDecorations();
         DrawRouterPreview();
@@ -215,6 +265,8 @@ public partial class MainWindow : SurfaceWindow
     private void Objects_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (updating) return;
+        if(Objects.SelectedItems.Count!=1 || Objects.SelectedItem is not ObjectEntry entry || !ReferenceEquals(entry.Item,selectedCallout))
+            selectedCallout=null;
         RefreshSelectionHighlight();
         DeleteButton.IsEnabled = Objects.SelectedItem is ObjectEntry;
         if (Objects.SelectedItems.Count>1) { PropertiesEditor.IsVisible=false; SelectionInfo.Text=surveyMode ? L("Выбрано точек: {0}", Objects.SelectedItems.Count) : L("Выбрано объектов: {0}. Ctrl — добавить или убрать объект; Shift и протягивание — рамка.", Objects.SelectedItems.Count); return; }
@@ -276,7 +328,7 @@ public partial class MainWindow : SurfaceWindow
     private Point World(Point point, bool snap = true)
     {
         var p = new Point((point.X-origin)/Scale, (point.Y-origin)/Scale);
-        if (!snap || !SnapActive || tool == "room") return p;
+        if (!snap || !SnapActive || tool is "room" or "wall") return p;
         if (tool == "router") return SnapRouterPosition(p);
         if(SurfaceSnap(p) is Point surface)return surface;
         return GridPosition(p);
@@ -287,6 +339,8 @@ public partial class MainWindow : SurfaceWindow
         if(e.Pointer.Type==PointerType.Touch)return;
         if (inlineNameEditor is not null) { CommitInlineRename(); e.Handled=true; return; }
         if (!surveyMode && tool == "tape") return;
+        selectedCallout=null;
+        Plan.Focus();
         var local = e.GetPosition(Plan);
         if (surveyMode) {
             if (measurementCancellation is not null) return;
@@ -321,7 +375,7 @@ public partial class MainWindow : SurfaceWindow
             if (Objects.SelectedItem is ObjectEntry selected) { dragItem = selected; dragStart = World(local, false); Plan.CapturePointer(); }
             return;
         }
-        var point = World(local);
+        var point = World(local,tool!="wall");
         if(tool=="router"){AddRouter(point);return;}
 
         drawingFilled=e.Button()==MouseButton.Left;drawingButton=e.Button();e.Handled=true;
@@ -345,7 +399,7 @@ public partial class MainWindow : SurfaceWindow
         }
         if (!surveyMode && tool == "tape") return;
         if (drawingStart is null || !Plan.IsPointerCaptured()) return;
-        var end=World(e.GetPosition(Plan));
+        var end=World(e.GetPosition(Plan),tool!="wall");
         if(drawingEnd!=end){drawingEnd=end;DrawConstructionPreview();}
     }
     private async void Plan_MouseUp(object sender, PointerReleasedEventArgs e)
@@ -379,14 +433,17 @@ public partial class MainWindow : SurfaceWindow
         }
         if (drawingStart is not Point start || !Plan.IsPointerCaptured()) return;
         e.Handled=true;
-        var end = World(e.GetPosition(Plan)); Plan.ReleasePointer(); FinishDrawing(start,end);
+        var end = World(e.GetPosition(Plan),tool!="wall"); Plan.ReleasePointer(); FinishDrawing(start,end);
     }
     private void FinishDrawing(Point start,Point end)
     {
         drawingStart = drawingEnd = null;
         ClearConstructionPreview();
         if (tool == "room") (start, end) = SnapRoomCorners(start, end);
-        if(tool is "wall" or "line")(start,end)=AlignConstructionLine(start,end,tool=="wall"?WallStroke:2);
+        var repair=tool=="wall"?FindRoomWallRepair(start,end):null;
+        if(repair is {} gap)(start,end)=(gap.A,gap.B);
+        else if(tool=="wall")(start,end)=SnapDrawnWall(start,end);
+        else if(tool=="line")(start,end)=AlignConstructionLine(start,end,2);
         if(tool is "rect" or "roundRect" or "ellipse" or "line" or "text"){AddDecoration(start,end);if(tool!="text")RenderPlan();return;}
         if(tool=="door"){CutDrawnOpening(start,end);RenderPlan();return;}
         try
@@ -401,7 +458,12 @@ public partial class MainWindow : SurfaceWindow
                 AddWall(id,x,y,x+w,y,t); AddWall(id,x+w,y,x+w,y+h,t); AddWall(id,x+w,y+h,x,y+h,t); AddWall(id,x,y+h,x,y,t); dirty=true;
             }
             else if (tool == "wall" && ((Vector)(end-start)).Length >= .15)
-            { EnsureSegmentFree(start, end, null); Remember(); Walls.Add(new JsonObject { ["id"]=Id(), ["a"]=Point(start.X,start.Y), ["b"]=Point(end.X,end.Y), ["thickness"]=t }); dirty=true; }
+            {
+                EnsureSegmentFree(start, end, null); Remember();
+                var wall=new JsonObject {["id"]=Id(),["a"]=Point(start.X,start.Y),["b"]=Point(end.X,end.Y),["thickness"]=t};
+                if(repair is {} side)wall["roomId"]=side.Room["id"]?.DeepClone();
+                Walls.Add(wall); dirty=true;
+            }
         }
         catch (FormatException ex) { MessageBox.Show(this, ex.Message, L("Проверьте размеры"), MessageBoxButton.OK, MessageBoxImage.Warning); }
         RenderPlan();
@@ -450,33 +512,10 @@ public partial class MainWindow : SurfaceWindow
             var (before,after)=OpeningBay(selected,t);
             if ((after-before)*length < width+2*margin) { Status.Text=L("На выбранном участке стены недостаточно места для проёма."); return; }
             double half=width/(2*length), center=Math.Clamp(t,before+margin/length+half,after-margin/length-half);
-            double ax=Number(selected["a"]!["x"]), ay=Number(selected["a"]!["y"]), bx=Number(selected["b"]!["x"]), by=Number(selected["b"]!["y"]);
-            JsonObject At(double n) => Point(ax+(bx-ax)*n,ay+(by-ay)*n);
-            Remember(); var first=selected.DeepClone().AsObject(); var second=selected.DeepClone().AsObject();
-            first["id"]=Id(); first["b"]=At(center-half); second["id"]=Id(); second["a"]=At(center+half);
-            var opening=new JsonObject { ["id"]=Id(), ["a"]=At(center-half), ["b"]=At(center+half), ["thickness"]=selected["thickness"]?.DeepClone() };
-            if (selected["roomId"] is not null) opening["roomId"]=selected["roomId"]!.DeepClone();
-            Walls.Remove(selected); Walls.Add(first); Walls.Add(second); Doors.Add(opening); dirty=true; RenderPlan(); Status.Text=L("Проём добавлен.");
+            Point a=End(selected,"a");Vector axis=End(selected,"b")-a;
+            CutWall(selected,a+axis*(center-half),a+axis*(center+half));RenderPlan();
         }
         catch (FormatException ex) { MessageBox.Show(this, ex.Message, L("Проверьте размеры"), MessageBoxButton.OK, MessageBoxImage.Warning); }
-    }
-    private void Delete_Click(object sender, RoutedEventArgs e)
-    {
-        if (Objects.SelectedItem is not ObjectEntry selected) return;
-        var obj=selected.Item;
-        Remember();
-        if (selected.Kind == "point") { document["points"]!.AsArray().Remove(obj); }
-        else if (selected.Kind == "room")
-        {
-            RetainSharedSegments(obj);
-            var id=obj["id"]?.GetValue<string>();
-            foreach (var array in new[] { Walls, Doors }) for (int i=array.Count-1;i>=0;i--) if (id is not null && array[i]?["roomId"]?.GetValue<string>()==id) array.RemoveAt(i);
-            Rooms.Remove(obj);
-        }
-        else if(selected.Kind=="decoration") Decorations.Remove(obj);
-        else if (selected.Kind == "wall") Walls.Remove(obj);
-        else { var wall=obj.DeepClone().AsObject(); wall["id"]=Id(); Walls.Add(wall); Doors.Remove(obj); }
-        dirty=true; RenderPlan();
     }
     private void Window_KeyDown(object sender, KeyEventArgs e) {PointerContext.Modifiers=e.KeyModifiers;HandleShortcut(e);}
 

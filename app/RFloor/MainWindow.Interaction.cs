@@ -12,9 +12,9 @@ public partial class MainWindow
     {
         if(e.Handled)return;
         bool onPlan=e.Source is Visual source && source.GetSelfAndVisualAncestors().Contains(Plan);
-        if(onPlan && e.Button()==MouseButton.Right && !surveyMode) {
+        if(onPlan && e.Button()==MouseButton.Right && !surveyMode && tool=="tape") {
             if(DeleteTapeAt(World(e.GetPosition(Plan),false))){e.Handled=true;return;}
-            if(tool=="tape"){tapeStart=tapeCursor=null;DrawTape();e.Handled=true;return;}
+            tapeStart=tapeCursor=null;DrawTape();e.Handled=true;return;
         }
         if(onPlan && e.Button()==MouseButton.Left && !surveyMode && tool=="tape") {
             TapeClick(TapeSnap(World(e.GetPosition(Plan),false)));
@@ -82,7 +82,7 @@ public partial class MainWindow
         if (delta.Length < 1e-8) return;
         var obj = item.Item;
         if (item.Kind == "wall" && obj["roomId"] is not null) { Status.Text = L("Переместите комнату целиком или измените её размеры."); return; }
-        if (item.Kind == "door")
+        if (item.Kind == "door" && obj["freeOpening"] is null)
         {
             Vector axis = new(Number(obj["b"]!["x"])-Number(obj["a"]!["x"]), Number(obj["b"]!["y"])-Number(obj["a"]!["y"]));
             if (axis.Length < 1e-8) return; axis=axis/axis.Length; delta = axis*Vectors.Dot(axis,delta);
@@ -101,7 +101,7 @@ public partial class MainWindow
             dirty=true;RenderPlan();return;
         }
         if(item.Kind=="decoration"){Remember();obj["x"]=Number(obj["x"])+delta.X;obj["y"]=Number(obj["y"])+delta.Y;dirty=true;RenderPlan();return;}
-        bool segment = item.Kind is "wall" or "door";
+        bool segment = IsPlanSegment(item.Kind);
         PropertyX.Text = Display(Number(segment ? obj["a"]!["x"] : obj["x"])+delta.X);
         PropertyY.Text = Display(Number(segment ? obj["a"]!["y"] : obj["y"])+delta.Y);
         if (segment) { PropertyW.Text = Display(Number(obj["b"]!["x"])+delta.X); PropertyH.Text = Display(Number(obj["b"]!["y"])+delta.Y); }

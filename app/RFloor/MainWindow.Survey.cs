@@ -13,7 +13,7 @@ public partial class MainWindow
     private JsonObject? animatedPoint;
     private Control[] animatedMarker=[];
     private bool waitingForMeasurement;
-    private int measurementFrame;
+    private readonly System.Diagnostics.Stopwatch measurementAnimation=new();
     private double CoverageRadius => (double)(CoverageRadiusInput.Value ?? (decimal)CoverageInterpolator.SupportRadius);
     private void CoverageRadius_Changed(object? sender,NumericUpDownValueChangedEventArgs e)
     {
@@ -282,8 +282,8 @@ public partial class MainWindow
         int delay=(int)MeasurementDelay.Value;
         SurveyPanel.IsEnabled=false; SettingsMenu.IsEnabled=false; DocumentTabs.IsEnabled=false; SurveyTools.IsEnabled=false; ModeSwitch.IsEnabled=false;
         HistoryTools.IsVisible=false; MeasureButton.IsVisible=true;
-        var animation=new DispatcherTimer {Interval=TimeSpan.FromMilliseconds(500)};
-        animation.Tick+=(_,_)=>{measurementFrame++; UpdateMeasurementMarker();};
+        var animation=new DispatcherTimer {Interval=TimeSpan.FromMilliseconds(33)};
+        animation.Tick+=(_,_)=>UpdateMeasurementMarker();
         try
         {
             if(targetBand is not null) {
@@ -296,7 +296,7 @@ public partial class MainWindow
             }
             animatedPoint=item;
             waitingForMeasurement=delay>0;
-            measurementFrame=0;
+            measurementAnimation.Restart();
             animation.Start();
             var requested=new JsonObject { ["signal"]=options.Signal,["ping"]=options.Ping,["download"]=options.Download,["upload"]=options.Upload,
                 ["pingTargets"]=new JsonArray((options.Ping?options.Targets:[]).Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray()) };
@@ -316,10 +316,8 @@ public partial class MainWindow
                     return;
                 }
                 waitingForMeasurement=false;
-                measurementFrame=0;
-                animation.Stop();
+                measurementAnimation.Restart();
                 UpdateMeasurementMarker();
-                animation.Start();
             }
             Status.Text=L("Выполняется замер сети…");
             var result=await NetworkMeasurements.RunSurveyAsync(options.Signal,options.Ping?options.Targets:[],options.Count,(options.Download || options.Upload)?options.Host:null,options.Port,options.Duration,cancellation.Token,options.Download,options.Upload);
@@ -379,12 +377,15 @@ public partial class MainWindow
         {
             SurveyPanel.IsEnabled=true; SettingsMenu.IsEnabled=true; DocumentTabs.IsEnabled=true; SurveyTools.IsEnabled=true; ModeSwitch.IsEnabled=true;
             animation.Stop();
+            measurementAnimation.Reset();
             animatedPoint=null; animatedMarker=[];
             measurementCancellation=null; MeasureButton.IsVisible=false; HistoryTools.IsVisible=true;
             if(ReferenceEquals(document,currentDocument) && Points.Contains(item)) RenderPlan();
         }
     }
-    private const double SurveyMarkerSize=7.5, SurveyFocusSize=12;
+    private const double SurveyDotDiameter=1.5, SurveyDiameterStep=3;
+    private const double SurveyMarkerSize=SurveyDotDiameter+2*SurveyDiameterStep;
+    private const double SurveyFocusSize=SurveyDotDiameter+3*SurveyDiameterStep;
     private const int SurveyMarkerLayer=152;
     private Border? hoveredSurveyPoint;
     private Ellipse? surveyHoverRing;
@@ -441,13 +442,31 @@ public partial class MainWindow
         }
     }
     private Control[] PointMarkerParts(Point position, IBrush color, object tag) =>
-        [CreatePointMarker(position,color,tag,1.5,fill:color),CreatePointMarker(position,color,tag,4.5),
+        [CreatePointMarker(position,color,tag,SurveyDotDiameter,fill:color),CreatePointMarker(position,color,tag,SurveyDotDiameter+SurveyDiameterStep),
          CreatePointMarker(position,color,tag,SurveyMarkerSize)];
 
     private void UpdateMeasurementMarker()
     {
+        double seconds=measurementAnimation.Elapsed.TotalSeconds;
         for(int i=0;i<animatedMarker.Length;i++)
-            animatedMarker[i].IsVisible=waitingForMeasurement ? i==0 && measurementFrame%2==0 : i==measurementFrame%3;
+            animatedMarker[i].Opacity=MeasurementMarkerOpacity(seconds,waitingForMeasurement,i);
+    }
+
+    internal static double MeasurementMarkerOpacity(double seconds,bool waiting,int index)
+    {
+        const double interval=.5,fade=.18;
+        int frame=(int)(seconds/interval);
+        double progress=Math.Clamp((seconds-frame*interval)/fade,0,1);
+        progress=progress*progress*(3-2*progress);
+        if(waiting)
+        {
+            if(index!=0)return 0;
+            if(frame==0)return 1;
+            return frame%2==0?progress:1-progress;
+        }
+        if(frame==0)return index==0?1:0;
+        if(index==frame%3)return progress;
+        return index==(frame-1)%3?1-progress:0;
     }
 
     private Ellipse CreatePointMarker(Point position, IBrush stroke, object? tag, double size, double opacity = 1, IBrush? fill = null)

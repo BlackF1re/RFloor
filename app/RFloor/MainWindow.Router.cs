@@ -79,7 +79,7 @@ public partial class MainWindow
     private Geometry? RouterClip(Rect bounds)
     {
         var center=bounds.Center;
-        double radius=bounds.Width*373.5/1024;
+        double radius=Math.Max(bounds.Width,bounds.Height)*373.5/1024;
         List<Point> polygon=[bounds.TopLeft,bounds.TopRight,bounds.BottomRight,bounds.BottomLeft];
         bool clipped=false;
         foreach (var wall in WallFaces())

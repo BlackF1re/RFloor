@@ -68,7 +68,8 @@ internal static class PhoneChecks {
         Call("TogglePanel",rightDrawer);
         WaitUntil(()=>rightDrawer.IsEnabled && rightDrawer.RenderTransform is null);
         var planObjectList=view.FindControl<ListBox>("Objects")!;
-        var row=planObjectList.GetVisualDescendants().OfType<ListBoxItem>().Single(item=>item.IsEffectivelyVisible);
+        var row=planObjectList.GetVisualDescendants().OfType<ListBoxItem>().Single(item=>item.IsEffectivelyVisible &&
+            ReferenceEquals(item.Content?.GetType().GetProperty("Item")?.GetValue(item.Content),decoration));
         Tap(row.TranslatePoint(new Point(22,row.Bounds.Height/2),host)!.Value);
         Require(Get("touchCard") is Border {Parent:Grid root,ZIndex:303} && ReferenceEquals(root,view.Content),
             "The object list did not open a card above the mobile drawer.");
@@ -78,12 +79,12 @@ internal static class PhoneChecks {
         bool haptic=false;PlatformServices.LongPressFeedback=()=>haptic=true;
         try {
             var oldX=decoration["x"]!.ToString();
-            using var finger=host.TouchBegin(At(150,280));
+            using var finger=host.TouchBegin(At(104,280));
             Require(Get("touchHold") is not null,"Touch on an object did not schedule long press.");
             WaitUntil(()=>haptic);
-            host.TouchMove(finger,At(180,290));Layout();
+            host.TouchMove(finger,At(134,290));Layout();
             Require(decoration["x"]!.ToString()==oldX && Get("dragItem") is not null,"Long press did not start a preview.");
-            host.TouchEnd(finger,At(180,290));Layout();
+            host.TouchEnd(finger,At(134,290));Layout();
             Require(decoration["x"]!.ToString()!=oldX,"Long press movement did not commit.");
         } finally {PlatformServices.LongPressFeedback=oldFeedback;}
         using(var finger=host.TouchBegin(At(75,230))){
@@ -103,9 +104,8 @@ internal static class PhoneChecks {
         var objectCard=(Border)Get("touchCard")!;
         var deleteObject=objectCard.GetVisualDescendants().OfType<Button>().Single(b=>Equals(b.Content,Localization.L("Удалить")));
         deleteObject.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));Layout();
-        var objectConfirmation=view.GetVisualDescendants().Single(v=>v.GetType().Name=="OverlayDialog");
-        objectConfirmation.GetVisualDescendants().OfType<Button>().Single(b=>!b.IsCancel).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Layout();Require(document["geometry"]!["decorations"]!.AsArray().Count==0,"The plan object card could not delete a primitive.");
+        Require(document["geometry"]!["decorations"]!.AsArray().Count==0 &&
+            !view.GetVisualDescendants().Any(v=>v.GetType().Name=="OverlayDialog"),"Plan deletion was not immediate.");
         Call("AddRoom_Click",view,new RoutedEventArgs());Layout();
         Call("SwitchMode",true);
         var wifi=PlatformServices.WifiReader;string band="2.4";
@@ -151,11 +151,13 @@ internal static class PhoneChecks {
             var delay=view.FindControl<Slider>("MeasurementDelay")!;delay.Value=1;band="5";
             OtherBand().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             WaitUntil(()=>Get("waitingForMeasurement") is true && Get("animatedPoint") is not null);
-            WaitUntil(()=>Get("measurementFrame") is 1 && Get("waitingForMeasurement") is true);
-            Require(((Control[])Get("animatedMarker")!).All(part=>!part.IsVisible),"The delay did not blink the central dot off.");
-            WaitUntil(()=>Get("waitingForMeasurement") is false && Get("measurementFrame") is 1);
-            Require(((Control[])Get("animatedMarker")!).Select(part=>part.IsVisible).SequenceEqual(new[]{false,true,false}),
-                "Measurement did not step through its gray marker parts.");
+            WaitUntil(()=>Get("waitingForMeasurement") is true && ((Control[])Get("animatedMarker")!).All(part=>part.Opacity==0));
+            WaitUntil(()=>Get("waitingForMeasurement") is false && ((Control[])Get("animatedMarker")!)[1].Opacity>0);
+            var animated=((Control[])Get("animatedMarker")!).Select(part=>part.Width).ToArray();
+            Require(animated.Length==3 && animated[1]-animated[0]==animated[2]-animated[1] &&
+                MainWindow.MeasurementMarkerOpacity(.59,false,0) is >0 and <1 &&
+                MainWindow.MeasurementMarkerOpacity(.59,false,1) is >0 and <1,
+                "The survey marker rings are uneven or their animation does not crossfade.");
             WaitUntil(()=>point["readings"]!.AsArray().Count==2);
             Require(document["points"]!.AsArray().Count==1 && point["readings"]![0]!["band"]!.ToString()=="2.4" &&
                 point["readings"]![1]!["band"]!.ToString()=="5","Another band replaced the saved reading or duplicated the point.");

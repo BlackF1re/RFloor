@@ -2,7 +2,7 @@ namespace RFloor;
 
 public partial class MainWindow
 {
-    private enum TouchGesture { Tap, Pan, Transform, ObjectDrag, Selection, Drawing, PointPlacement, Consumed }
+    private enum TouchGesture { Tap, Pan, Transform, ObjectDrag, LabelDrag, Selection, Drawing, PointPlacement, Consumed }
     private const double TouchSlop = 8;
     private readonly Dictionary<int, Point> touches = [];
     private TouchGesture touchGesture;
@@ -12,6 +12,8 @@ public partial class MainWindow
     private Point? touchDrawingAnchor;
     private Ellipse? touchAnchorMarker;
     private ObjectEntry? touchLabelTarget;
+    private Border? touchDraggedLabel;
+    private Point touchLabelStart,touchLabelPosition;
     private bool touchLabels;
     private Border? touchCard;
 
@@ -53,7 +55,7 @@ public partial class MainWindow
         if(e.Pointer.Type != PointerType.Touch) {
             if(touchLabels) {
                 touchLabels=false;
-                Dispatcher.UIThread.Post(()=>{if(!touchLabels)RenderPlan();});
+                if(surveyMode)Dispatcher.UIThread.Post(()=>{if(!touchLabels)RenderPlan();});
             }
             PanStart(sender!,e);
             return;
@@ -79,14 +81,16 @@ public partial class MainWindow
         touchLabelTarget=(e.Source as Visual)?.GetSelfAndVisualAncestors().OfType<Border>().Select(b=>b.Tag).OfType<ObjectEntry>().FirstOrDefault();
         var hit=touchLabelTarget ??
             HitObject(World(local,false), 14/(Scale*PlanZoom.ScaleX));
-        if(!touchLabels) { touchLabels=true; RenderPlan(); }
+        if(!touchLabels) { touchLabels=true; if(surveyMode)RenderPlan(); }
         PreviewTouch(local);
         if(measurementCancellation is not null) return;
         if(surveyMode && surveyTool==SurveyTool.Add) {
             touchGesture=TouchGesture.PointPlacement;
             return;
         }
-        if (surveyMode && surveyTool == SurveyTool.Select && hit is null ||
+        if(!surveyMode && tool=="select" && touchLabelTarget is {} callout)
+            touchHold=DispatcherTimer.RunOnce(()=>StartTouchLabelDrag(callout,local),TimeSpan.FromMilliseconds(475));
+        else if (surveyMode && surveyTool == SurveyTool.Select && hit is null ||
             !surveyMode && tool=="select" && (hit is null || hit.Kind=="room" && touchLabelTarget is null))
             touchHold=DispatcherTimer.RunOnce(()=>{
                 marqueeStart=marqueeEnd=World(local,false);
@@ -108,7 +112,7 @@ public partial class MainWindow
             },TimeSpan.FromMilliseconds(475));
         else if(!surveyMode && tool!="select")
             touchHold=DispatcherTimer.RunOnce(()=>{
-                touchDrawingAnchor=tool is "text" or "router"?null:World(local);
+                touchDrawingAnchor=tool is "text" or "router"?null:World(local,tool!="wall");
                 touchGesture=TouchGesture.Drawing;
                 PreviewTouch(local);
                 PlatformServices.LongPressFeedback?.Invoke();
@@ -138,6 +142,8 @@ public partial class MainWindow
         } else if(touchGesture==TouchGesture.ObjectDrag && dragItem is {} item && dragStart is Point start) {
             dragDelta=AdjustDrag(item,World(e.GetPosition(Plan),false)-start);
             DrawDragPreview();
+        } else if(touchGesture==TouchGesture.LabelDrag && touchDraggedLabel is {} label) {
+            MoveTouchLabel(label,touchLabelPosition+(e.GetPosition(Plan)-touchLabelStart));
         } else if(touchGesture==TouchGesture.Selection) {
             marqueeEnd=World(e.GetPosition(Plan),false);
             DrawMarquee();
@@ -170,6 +176,12 @@ public partial class MainWindow
             var delta=AdjustDrag(item,World(local,false)-from);
             CancelTouchGesture();
             if(CanMove(item,delta)) MoveSelected(item,delta);
+        } else if(touchGesture==TouchGesture.LabelDrag && touchDraggedLabel is {Tag:ObjectEntry callout} label) {
+            Vector delta=local-touchLabelStart;
+            MoveTouchLabel(label,touchLabelPosition+delta);
+            SaveLabelOffset(callout.Item,delta);
+            touchDraggedLabel=null;
+            RefreshTabHeaders();
         } else if(touchGesture==TouchGesture.Selection && marqueeStart is Point first) {
             SelectMarquee(first,World(local,false),e.GetPosition(Viewport));
         } else if(touchGesture==TouchGesture.PointPlacement) {
@@ -182,12 +194,36 @@ public partial class MainWindow
         CancelTouchGesture();
     }
 
+    private void StartTouchLabelDrag(ObjectEntry callout,Point local)
+    {
+        var label=Plan.Children.OfType<Border>().FirstOrDefault(b=>b.Tag is ObjectEntry entry && ReferenceEquals(entry.Item,callout.Item));
+        var selected=Objects.Items.OfType<ObjectEntry>().FirstOrDefault(entry=>ReferenceEquals(entry.Item,callout.Item));
+        if(label is null || selected is null)return;
+        Objects.SelectedItem=selected;
+        selectedCallout=selected.Item;
+        touchDraggedLabel=label;
+        touchLabelStart=local;
+        touchLabelPosition=new Point(Canvas.GetLeft(label),Canvas.GetTop(label));
+        touchGesture=TouchGesture.LabelDrag;
+        PlatformServices.LongPressFeedback?.Invoke();
+    }
+
+    private void MoveTouchLabel(Border label,Point position)
+    {
+        Canvas.SetLeft(label,position.X);
+        Canvas.SetTop(label,position.Y);
+        if(label.Tag is ObjectEntry entry && Plan.Children.OfType<Polyline>()
+            .FirstOrDefault(p=>p.Tag is LabelLeader leader && ReferenceEquals(leader.Item,entry.Item)) is {} line)
+            PositionLabelLeader(line,entry,new Rect(position,label.DesiredSize));
+    }
+
     private void StartTouchDrag(ObjectEntry hit, Point local)
     {
         var selected=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(entry=>ReferenceEquals(entry.Item,hit.Item));
         if(selected is null) return;
         if(selected.Kind=="wall" && selected.Item["roomId"] is {} id)
             selected=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(entry=>entry.Kind=="room" && entry.Item["id"]?.ToString()==id.ToString()) ?? selected;
+        selectedCallout=null;
         Objects.SelectedItem=selected;
         dragItem=selected;
         dragStart=World(local,false);
@@ -209,7 +245,7 @@ public partial class MainWindow
         else if(!surveyMode && tool=="tape" && tapeStart is not null) {
             tapeCursor=TapeSnap(World(local,false)); DrawPendingTape();
         } else if(touchDrawingAnchor is Point start) {
-            drawingStart=start; drawingEnd=World(local); drawingFilled=!phoneOutline; DrawConstructionPreview();
+            drawingStart=start; drawingEnd=World(local,tool!="wall"); drawingFilled=!phoneOutline; DrawConstructionPreview();
         }
     }
 
@@ -218,14 +254,17 @@ public partial class MainWindow
         var point=World(local,false);
         if(surveyMode && surveyTool != SurveyTool.None) { await SurveyClick(local,14/(Scale*PlanZoom.ScaleX)); return; }
         if(surveyMode || tool=="select") {
-            var hit=touchLabelTarget ?? HitObject(point,14/(Scale*PlanZoom.ScaleX));
+            var target=touchLabelTarget;
+            var hit=target is null?HitObject(point,14/(Scale*PlanZoom.ScaleX)):
+                Objects.Items.OfType<ObjectEntry>().FirstOrDefault(entry=>ReferenceEquals(entry.Item,target.Item));
             Objects.SelectedItem=hit;
+            selectedCallout=target is not null?hit?.Item:null;
             if(surveyMode && hit is not null) ShowTouchCard(hit,viewportPoint);
             else ShowSelectedObjectCard(viewportPoint);
             return;
         }
         if(tool=="tape") { TapeClick(TapeSnap(point)); return; }
-        point=World(local);
+        point=World(local,tool!="wall");
         if(tool=="router") { AddRouter(point); return; }
         if(tool=="text") { AddDecoration(point,point); return; }
         if(touchDrawingAnchor is Point start) { touchDrawingAnchor=null; DrawTouchAnchor(); FinishDrawing(start,point); }
@@ -240,6 +279,12 @@ public partial class MainWindow
     {
         touchHold?.Dispose();
         touchHold=null;
+        if(touchDraggedLabel is {} label)
+        {
+            MoveTouchLabel(label,touchLabelPosition);
+            touchDraggedLabel=null;
+        }
+        touchLabelTarget=null;
         if (touchGesture == TouchGesture.Selection) {
             marqueeStart=marqueeEnd=null;
             ClearMarquee();
@@ -311,11 +356,11 @@ public partial class MainWindow
     {
         var delete=new Button {Content=L("Удалить")};
         var properties=new Button {Content=L("Свойства")};
-        delete.Click+=async (_,_)=>{
+        delete.Click+=(_,_)=>{
             HideTouchCard();
-            if(!await ConfirmObjectDeletion(hit) || !Objects.Items.Contains(hit))return;
+            if(!Objects.Items.Contains(hit))return;
             Objects.SelectedItem=hit;
-            Delete_Click(delete,new RoutedEventArgs());
+            DeletePlanEntries([hit]);
         };
         properties.Click+=(_,_)=>{
             HideTouchCard();
@@ -324,20 +369,6 @@ public partial class MainWindow
             if(compactLayout?!RightSidebar.IsEnabled:!rightPanelOpen)TogglePanel(RightSidebar);
         };
         return OverlayDialog.Actions(delete,properties);
-    }
-
-    private Task<bool> ConfirmObjectDeletion(ObjectEntry hit)
-    {
-        var dialog=new OverlayDialog(this) {Title=L("Удалить"),Width=360};
-        var cancel=new Button {Content=L("Отмена"),IsCancel=true};
-        var confirm=new Button {Content=L("Удалить")};
-        confirm.Click+=(_,_)=>dialog.Complete(true);
-        cancel.Click+=(_,_)=>dialog.Cancel();
-        var content=new StackPanel {Margin=new Thickness(16,4,16,16)};
-        content.Children.Add(new TextBlock {Text=L("Удалить объект «{0}»?",ObjectName(hit.Item,hit.Label)),TextWrapping=TextWrapping.Wrap});
-        content.Children.Add(OverlayDialog.Actions(cancel,confirm));
-        dialog.Content=content;
-        return dialog.ShowAsync();
     }
 
     private void HideTouchCard()

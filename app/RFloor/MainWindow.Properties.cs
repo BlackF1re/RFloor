@@ -6,6 +6,7 @@ namespace RFloor;
 public partial class MainWindow
 {
     private const string HighlightTag = "selection-highlight";
+    private double shownSegmentLength;
     private static string Display(double value) => value.ToString("0.########", CultureInfo.CurrentCulture);
 
     private void ClearSelectionHighlight()
@@ -17,26 +18,30 @@ public partial class MainWindow
     private void ShowProperties(ObjectEntry selected)
     {
         var obj = selected.Item;
-        bool room = selected.Kind == "room", point = selected.Kind == "point", wall = selected.Kind == "wall", segment = selected.Kind is "wall" or "door";
+        bool room = selected.Kind == "room", point = selected.Kind == "point", wall = selected.Kind == "wall", segment = IsPlanSegment(selected.Kind);
         PropertiesEditor.IsVisible = true;
         PropertyNamePanel.IsVisible = true;
-        PropertySizePanel.IsVisible = point || obj["kind"]?.ToString()=="router" ? false : true;
+        PropertySizePanel.IsVisible = !point;
+        PropertyLengthPanel.IsVisible = segment;
         PropertyThicknessPanel.IsVisible = false;
+        PropertyLengthLabel.Text=L("Длина, м");
         PropertyName.Text = ObjectName(obj, room ? L("Комната") : point ? L("Точка") : wall ? L("Стена") : L("Проём"));
         bool ownedWall = wall && obj["roomId"] is not null;
-        PropertyX.IsReadOnly = PropertyY.IsReadOnly = PropertyW.IsReadOnly = PropertyH.IsReadOnly = ownedWall;
+        PropertyX.IsReadOnly = PropertyY.IsReadOnly = PropertyW.IsReadOnly = PropertyH.IsReadOnly = false;
         PropertyXLabel.Text = segment ? L("Начало X, м") : L("X, м"); PropertyYLabel.Text = segment ? L("Начало Y, м") : L("Y, м");
         PropertyWLabel.Text = segment ? L("Конец X, м") : L("Ширина, м"); PropertyHLabel.Text = segment ? L("Конец Y, м") : L("Высота, м");
         PropertyX.Text = Display(Number(segment ? obj["a"]!["x"] : obj["x"]));
         PropertyY.Text = Display(Number(segment ? obj["a"]!["y"] : obj["y"]));
         if (room || segment || selected.Kind=="decoration")
         {
-            PropertyW.Text = Display(Number(segment ? obj["b"]!["x"] : obj["w"]));
-            PropertyH.Text = Display(Number(segment ? obj["b"]!["y"] : obj["h"]));
+            var bounds=selected.Kind=="decoration"?DecorationBounds(obj):default;
+            PropertyW.Text = Display(selected.Kind=="decoration"?bounds.Width:Number(segment ? obj["b"]!["x"] : obj["w"]));
+            PropertyH.Text = Display(selected.Kind=="decoration"?bounds.Height:Number(segment ? obj["b"]!["y"] : obj["h"]));
         }
+        if(segment){shownSegmentLength=Length(obj);PropertyLength.Text=Display(shownSegmentLength);}
         if (wall) PropertyThickness.Text = Display(obj["thickness"] is null ? .14 : Number(obj["thickness"]));
         bool roomHasWalls = room && HasRoomWalls(obj);
-        PropertyHint.Text = room && !roomHasWalls ? L("Стены не связаны с этой комнатой и не изменятся вместе с ней.") : ownedWall ? L("Положение стены связано с комнатой. Измените размеры комнаты.") : room ? L("Стены комнаты перемещаются вместе с ней. Ширина и положение проёмов сохраняются при изменении размеров.") : point ? L("При переносе точки результаты замера сохраняются.") : selected.Kind == "door" ? L("Задайте концы проёма на той же стене; соседние участки стены изменятся вместе с ним.") : "";
+        PropertyHint.Text = room && !roomHasWalls ? L("Стены не связаны с этой комнатой и не изменятся вместе с ней.") : ownedWall ? L("Концы стены должны оставаться на границе комнаты.") : room ? L("Стены комнаты перемещаются вместе с ней. Ширина и положение проёмов сохраняются при изменении размеров.") : point ? L("При переносе точки результаты замера сохраняются.") : selected.Kind == "door" && obj["freeOpening"] is null ? L("Задайте концы проёма на той же стене; соседние участки стены изменятся вместе с ним.") : "";
         LoadObjectLabelProperties(selected);
     }
 
@@ -48,16 +53,43 @@ public partial class MainWindow
         {
             var obj = selected.Item;
             double x = Parse(PropertyX, "X"), y = Parse(PropertyY, "Y");
-            double w = 0, h = 0, thickness = 0;
-            if (selected.Kind is "room" or "wall" or "door" or "decoration") { w = Parse(PropertyW, L("Ширина или конец X"), selected.Kind == "room"); h = Parse(PropertyH, L("Высота или конец Y"), selected.Kind == "room"); }
-            if (selected.Kind == "wall")
+            double w = 0, h = 0;
+            bool segment=IsPlanSegment(selected.Kind);
+            if (segment || selected.Kind is "room" or "decoration")
             {
-                thickness = Parse(PropertyThickness, L("Толщина"), true);
-                if (thickness < .05 || thickness > 1 || Math.Sqrt((w-x)*(w-x)+(h-y)*(h-y)) < .15) throw new FormatException(L("Длина стены должна быть не меньше 0,15 м, толщина — от 0,05 до 1 м."));
+                w = Parse(PropertyW, PropertyWLabel.Text!, selected.Kind=="room");
+                h = Parse(PropertyH, PropertyHLabel.Text!, selected.Kind=="room");
             }
-            if (selected.Kind == "point" && !CanPlaceSurveyPoint(new Point(x,y)))
+            var a=new Point(x,y);var b=new Point(w,h);
+            if(segment)
+            {
+                Vector axis=b-a;
+                double length=Parse(PropertyLength,L("Длина, м"),true);
+                if(Math.Abs(length-shownSegmentLength)>1e-7)
+                {
+                    if(axis.Length<1e-8)axis=End(obj,"b")-End(obj,"a");
+                    b=a+axis*(length/axis.Length);
+                }
+                bool moved=((Vector)(a-End(obj,"a"))).Length>1e-7 || ((Vector)(b-End(obj,"b"))).Length>1e-7;
+                if(moved)
+                {
+                    if(!double.IsFinite(b.X) || !double.IsFinite(b.Y) || Math.Abs(b.X)>=10000 || Math.Abs(b.Y)>=10000 ||
+                        ((Vector)(b-a)).Length<(selected.Kind=="tape"?.001:.15)-1e-8)
+                        throw new FormatException(L("Проверьте координаты и длину отрезка."));
+                    if(selected.Kind=="door" && obj["freeOpening"] is null)EditOpening(obj,a,b);
+                    else
+                    {
+                        if(selected.Kind=="wall")ValidateWallResize(obj,a,b);
+                        if(selected.Kind!="tape")EnsureSegmentFree(a,b,obj);
+                        Remember();
+                        SetSegmentEnds(obj,a,b);
+                    }
+                }
+                else Remember();
+            }
+            else if (selected.Kind == "point" && !CanPlaceSurveyPoint(new Point(x,y)))
                 throw new FormatException(L("Разместите точку внутри комнаты или вплотную к стене."));
-            if (selected.Kind == "room")
+            else if (selected.Kind == "room")
             {
                 double ox = Number(obj["x"]), oy = Number(obj["y"]), ow = Number(obj["w"]), oh = Number(obj["h"]);
                 if (w < .2 || h < .2 || Math.Abs(x+w) >= 10000 || Math.Abs(y+h) >= 10000) throw new FormatException(L("Размер комнаты должен быть не меньше 0,2 м."));
@@ -86,15 +118,42 @@ public partial class MainWindow
                 if (changed && hadWalls) CompleteRoomWalls(obj);
             }
             else if (selected.Kind == "point") { EnsurePointFree(x, y, obj); Remember(); obj["x"] = x; obj["y"] = y; obj["name"] = string.IsNullOrWhiteSpace(PropertyName.Text) ? L("Точка") : PropertyName.Text.Trim(); }
-            else if (selected.Kind == "door") { EditOpening(obj, new Point(x, y), new Point(w, h)); }
-            else if (selected.Kind == "wall") { EnsureSegmentFree(new Point(x,y), new Point(w,h), obj); Remember(); obj["a"]!["x"] = x; obj["a"]!["y"] = y; obj["b"]!["x"] = w; obj["b"]!["y"] = h; obj["thickness"] = thickness; }
-            else if(selected.Kind=="decoration"){Remember();obj["x"]=x;obj["y"]=y;obj["w"]=Math.Max(0,w);obj["h"]=Math.Max(0,h);}
+            else if(selected.Kind=="decoration")
+            {
+                bool line=obj["kind"]?.ToString()=="line";
+                if(w<0 || h<0 || (line?w+h<.001:w<.001 || h<.001))
+                    throw new FormatException(L("Проверьте ширину и высоту объекта."));
+                var bounds=DecorationBounds(obj);
+                Remember();obj["x"]=x;obj["y"]=y;
+                if(obj["kind"]?.ToString()=="text")
+                {
+                    if(Math.Abs(w-bounds.Width)>1e-7 || Math.Abs(h-bounds.Height)>1e-7){obj["boxWidth"]=w;obj["boxHeight"]=h;}
+                }
+                else {obj["w"]=w;obj["h"]=h;}
+            }
             else return;
+            if(!string.IsNullOrWhiteSpace(PropertyName.Text) && PropertyName.Text.Trim()!=ObjectName(obj,selected.Kind))obj.Remove("copyBaseName");
             obj["name"] = string.IsNullOrWhiteSpace(PropertyName.Text) ? ObjectName(obj,selected.Kind) : PropertyName.Text.Trim();
             SaveObjectLabelProperties(obj);
             dirty = true; RenderPlan(); Objects.SelectedItem = Objects.Items.Cast<ObjectEntry>().FirstOrDefault(item => ReferenceEquals(item.Item, obj)); Status.Text = L("Изменения применены. Сохраните проект.");
         }
         catch (FormatException ex) { MessageBox.Show(this, ex.Message, L("Проверьте свойства"), MessageBoxButton.OK, MessageBoxImage.Warning); }
+    }
+    private void ValidateWallResize(JsonObject wall,Point a,Point b)
+    {
+        if(wall["roomId"] is not {} id)return;
+        var room=Rooms.OfType<JsonObject>().FirstOrDefault(r=>r["id"]?.ToString()==id.ToString());
+        if(room is not null && !RoomEdges(room).Any(edge=>((Vector)(OnEdge(a,edge.A,edge.B)-a)).Length<1e-6 &&
+            ((Vector)(OnEdge(b,edge.A,edge.B)-b)).Length<1e-6))
+            throw new FormatException(L("Концы стены должны оставаться на границе комнаты."));
+        foreach(var opening in Doors.OfType<JsonObject>().Where(d=>d["roomId"]?.ToString()==id.ToString()))
+        foreach(var end in new[]{"a","b"})
+        {
+            var point=End(opening,end);
+            if((((Vector)(point-End(wall,"a"))).Length<1e-6 || ((Vector)(point-End(wall,"b"))).Length<1e-6) &&
+                ((Vector)(point-a)).Length>=1e-6 && ((Vector)(point-b)).Length>=1e-6)
+                throw new FormatException(L("Измените ширину проёма в его свойствах, чтобы передвинуть общий конец."));
+        }
     }
     private void EditOpening(JsonObject opening, Point newA, Point newB)
     {

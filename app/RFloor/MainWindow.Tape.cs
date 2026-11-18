@@ -6,32 +6,26 @@ public partial class MainWindow
 {
     private JsonArray Tapes => Geometry["tapes"] as JsonArray ?? (JsonArray)(Geometry["tapes"]=new JsonArray())!;
     private Border TapeLabel(Point a,Point b) => new() {CornerRadius=new CornerRadius(4),Background=Brushes.White,Padding=new Thickness(4,2,4,2),Child=new TextBlock {Text=L("{0:0.##} м", ((Vector)(b-a)).Length),Foreground=Brushes.Black,FontSize=12}};
-    private Rect TapeLabelBounds(Point a,Point b)
-    {
-        var label=TapeLabel(a,b);label.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));
-        return new Rect(new Point(Screen((a.X+b.X)/2)+6,Screen((a.Y+b.Y)/2)+6),label.DesiredSize);
-    }
     private Line? pendingTapeLine;
     private TextBlock? pendingTapeLength;
     private Border? pendingTapeLabel;
     private bool DeleteTapeAt(Point p)
     {
         var pixel=new Point(Screen(p.X),Screen(p.Y));
-        var hit=Tapes.Select(n=>n!.AsObject()).Reverse().FirstOrDefault(t=>SegmentDistance(p,t).Distance<7/(Scale*PlanZoom.ScaleX) || TapeLabelBounds(End(t,"a"),End(t,"b")).Contains(pixel));
+        var hit=Tapes.Select(n=>n!.AsObject()).Reverse().FirstOrDefault(t=>SegmentDistance(p,t).Distance<7/(Scale*PlanZoom.ScaleX) || Plan.Children.OfType<Border>().Any(label=>label.Tag is ObjectEntry entry && ReferenceEquals(entry.Item,t) &&
+            new Rect(new Point(Canvas.GetLeft(label),Canvas.GetTop(label)),label.DesiredSize).Contains(pixel)));
         if(hit is null)return false;
-        Remember();Tapes.Remove(hit);dirty=true;DrawTape();RefreshTabHeaders();return true;
+        Remember();Tapes.Remove(hit);dirty=true;RenderPlan();return true;
     }
     // Updating the tape must not replace hit targets, selection or mouse-wheel routes.
     private void DrawTape()
     {
         foreach(var child in Plan.Children.OfType<FrameworkElement>().Where(v=>Equals(v.Tag,"tape-overlay")).ToList())Plan.Children.Remove(child);
         if(surveyMode)return;
-        void Add(FrameworkElement element){element.Tag="tape-overlay";element.IsHitTestVisible=false;Ui.SetZIndex(element,150);Plan.Children.Add(element);}
+        void Add(FrameworkElement element){element.Tag="tape-overlay";element.IsHitTestVisible=false;Ui.SetZIndex(element,91);Plan.Children.Add(element);}
         foreach(var tape in Tapes.Select(n=>n!.AsObject())) {
             Point a=End(tape,"a"),b=End(tape,"b");
-            Add(new Line {X1=Screen(a.X),Y1=Screen(a.Y),X2=Screen(b.X),Y2=Screen(b.Y),Stroke=Brushes.DarkOrange,StrokeThickness=1});
-            var label=TapeLabel(a,b);
-            PositionTapeLabel(label,a,b);Add(label);
+            Add(new Line {X1=Screen(a.X),Y1=Screen(a.Y),X2=Screen(b.X),Y2=Screen(b.Y),Stroke=Brushes.DarkOrange,StrokeThickness=1,DataContext=tape});
         }
         DrawPendingTape();
     }

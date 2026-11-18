@@ -183,7 +183,7 @@ internal static class LayoutChecks {
         Call("TapeClick",new Point(1,1));Call("TapeClick",new Point(2,1));Call("TapeClick",new Point(2,2));
         var tapes=plan.Children.OfType<Control>().Where(control=>Equals(control.Tag,"tape-overlay")).ToArray();
         host.MouseMove(At(350,300));Layout();
-        Require(tapes.Length>=4 && plan.Children.OfType<Control>().Where(control=>Equals(control.Tag,"tape-overlay")).SequenceEqual(tapes),
+        Require(tapes.Length==3 && plan.Children.OfType<Control>().Where(control=>Equals(control.Tag,"tape-overlay")).SequenceEqual(tapes),
             "Moving a pending tape rebuilt completed tapes or replaced its preview.");
         host.Close();
         Console.WriteLine("Canvas input checks passed: persistent rulers, scrolling, cursor projection, and isolated construction and tape previews.");

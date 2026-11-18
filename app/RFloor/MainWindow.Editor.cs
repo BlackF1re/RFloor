@@ -94,7 +94,7 @@ public partial class MainWindow
             return SnapRouterPosition(center + delta) - center;
         }
         if (SnapEnabled.IsChecked == true && !PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) { double step=GridSize; delta=delta.WithX(Math.Round(delta.X/step)*step); delta=delta.WithY(Math.Round(delta.Y/step)*step); }
-        if (item.Kind == "door") { Vector axis=End(item.Item,"b")-End(item.Item,"a"); if (axis.Length > 1e-8) { axis=axis/axis.Length; delta=axis*Vectors.Dot(axis,delta); } }
+        if (item.Kind == "door" && item.Item["freeOpening"] is null) { Vector axis=End(item.Item,"b")-End(item.Item,"a"); if (axis.Length > 1e-8) { axis=axis/axis.Length; delta=axis*Vectors.Dot(axis,delta); } }
         if(SnapEnabled.IsChecked==true && !PointerContext.Modifiers.HasFlag(KeyModifiers.Shift))delta=SnapMovedSurface(item,delta);
         return delta;
     }
@@ -127,6 +127,7 @@ public partial class MainWindow
                 foreach (var segment in group) EnsureSegmentFree(End(segment,"a")+delta,End(segment,"b")+delta,segment,group);
             }
             else if (item.Kind == "point") { double x=Number(obj["x"])+delta.X,y=Number(obj["y"])+delta.Y; EnsurePointFree(x,y,obj); if (!CanPlaceSurveyPoint(new Point(x,y))) return false; }
+            else if (item.Kind == "door" && obj["freeOpening"] is not null) EnsureSegmentFree(End(obj,"a")+delta,End(obj,"b")+delta,obj);
             else if (item.Kind == "door") { var bounds=OpeningBounds(obj); if (bounds is null) return false; Vector axis=End(obj,"b")-End(obj,"a"); axis=axis/axis.Length; if (Vectors.Dot(End(obj,"a")+delta-bounds.Value.Before,axis)<.08 || Vectors.Dot(bounds.Value.After-End(obj,"b")-delta,axis)<.08 || WallJunctions(End(obj,"a")+delta-axis*.08,End(obj,"b")+delta+axis*.08).Any()) return false; }
             return true;
         }
@@ -138,7 +139,7 @@ public partial class MainWindow
         else {
             if(((Vector)(p-tapeStart.Value)).Length*Scale<1)return;
             Remember();Tapes.Add(new JsonObject {["id"]=Id(),["a"]=Point(tapeStart.Value.X,tapeStart.Value.Y),["b"]=Point(p.X,p.Y)});
-            tapeStart=tapeCursor=null;dirty=true;RefreshTabHeaders();
+            tapeStart=tapeCursor=null;dirty=true;RenderPlan();return;
         }
         DrawTape();
     }

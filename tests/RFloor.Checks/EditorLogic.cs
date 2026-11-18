@@ -163,7 +163,7 @@ internal static class EditorLogic
         bool rejected=false;try{normalize.Invoke(null,["Alt+F4"]);}catch(TargetInvocationException ex)when(ex.InnerException is FormatException){rejected=true;}
         Require(rejected,"Windows reserved shortcut was accepted");
         var canvas=(Canvas)window.FindControl<Control>("Plan");var labels=canvas.Children.OfType<Border>().Where(x=>x.Child is TextBlock && x.IsHitTestVisible).ToArray();
-        Require(labels.Length==geometry["rooms"]!.AsArray().Count,"Walls must be unlabeled by default");
+        Require(labels.Length==geometry["rooms"]!.AsArray().Count+geometry["tapes"]!.AsArray().Count,"Only rooms and completed tapes should have visible labels here");
         Require(labels.All(x=>x.ZIndex==100 && x.Opacity>0 && x.Opacity<1),"Labels are not translucent and above objects");
         Require(labels.All(x=>x.CornerRadius.TopLeft>0),"Object labels must have rounded corners");
         var labelDefaults=(JsonObject)Get("labelDefaults")!;
@@ -225,6 +225,68 @@ internal static class EditorLogic
         Call("FinishDrawing",new Point(4,1),new Point(4,2.7));
         var partialDoor=partial["geometry"]!["doors"]![0]!;
         Near(partialDoor["b"]!["y"]!.GetValue<double>(),2.12,"Door crossed a return wall at a T-junction");
+        string? fixture=Environment.GetEnvironmentVariable("RFLOOR_ROOM_REPAIR_FIXTURE");
+        var repair=fixture is not null?JsonNode.Parse(File.ReadAllText(fixture))!.AsObject():
+            (JsonObject)type.GetMethod("NewDocument",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,null)!;
+        Call("AddDocument",repair,null);
+        Call("SwitchMode",false);
+        if(fixture is null)Call("AddRoom_Click",window,new RoutedEventArgs());
+        var repairGeometry=repair["geometry"]!.AsObject();
+        var repairRoom=repairGeometry["rooms"]!.AsArray().OfType<JsonObject>().First();
+        double right=repairRoom["x"]!.GetValue<double>()+repairRoom["w"]!.GetValue<double>();
+        double top=repairRoom["y"]!.GetValue<double>(), bottom=top+repairRoom["h"]!.GetValue<double>();
+        var repairWalls=repairGeometry["walls"]!.AsArray();
+        var repairDoors=repairGeometry["doors"]!.AsArray();
+        JsonObject[] RightWallParts()=>repairWalls.OfType<JsonObject>().Where(w=>
+            Math.Abs(w["a"]!["x"]!.GetValue<double>()-right)<1e-6 &&
+            Math.Abs(w["b"]!["x"]!.GetValue<double>()-right)<1e-6).ToArray();
+        foreach(var side in RightWallParts())repairWalls.Remove(side);
+        Call("RenderPlan");
+        Call("SetTool","wall");
+        Call("FinishDrawing",new Point(right+.015,top+.025),new Point(right-.02,bottom-.025));
+        void RequireContinuousWall()
+        {
+            Require(RightWallParts() is [{ }], "The room side is still split");
+            var wall=RightWallParts().Single();
+            double a=wall["a"]!["y"]!.GetValue<double>(),b=wall["b"]!["y"]!.GetValue<double>();
+            Near(Math.Min(a,b),top,"The repaired wall did not meet the top corner");
+            Near(Math.Max(a,b),bottom,"The repaired wall did not meet the bottom corner");
+            Require(wall["roomId"]?.ToString()==repairRoom["id"]?.ToString(),"The repaired wall was detached from the room");
+        }
+        RequireContinuousWall();
+        int originalDoorCount=repairDoors.Count;
+        for(int attempt=0;attempt<2;attempt++)
+        {
+            Call("SetTool","door");
+            Call("FinishDrawing",new Point(right,top+.6),new Point(right,top+1.4));
+            Require(repairDoors.Count==originalDoorCount+1 && RightWallParts().Length==2,"The opening cannot be drawn into the repaired wall");
+            var cut=repairDoors[^1];
+            Call("SetTool","select");
+            objects.SelectedItem=objects.Items.Cast<object>().Single(e=>ReferenceEquals(e.GetType().GetProperty("Item")!.GetValue(e),cut));
+            Call("DeleteSelection_Click",window,new RoutedEventArgs());
+            Require(repairDoors.Count==originalDoorCount,"Deleting an opening did not remove it");
+            RequireContinuousWall();
+        }
+        Call("TapeClick",new Point(right+1,top));Call("TapeClick",new Point(right+2,top));
+        var tape=repairGeometry["tapes"]!.AsArray().Last()!.AsObject();
+        object Entry(JsonObject item)=>objects.Items.Cast<object>().Single(value=>ReferenceEquals(value.GetType().GetProperty("Item")!.GetValue(value),item));
+        objects.SelectedItem=Entry(tape);
+        Field("PropertyLength").Text="2";
+        Call("ApplyProperties_Click",window,new RoutedEventArgs());
+        Near(tape["b"]!["x"]!.GetValue<double>(),right+3,"Tape length was not editable in properties");
+        type.GetField("selectedCallout",flags)!.SetValue(window,tape);
+        Call("CopyPlan_Click",window,new RoutedEventArgs());
+        Call("PastePlan_Click",window,new RoutedEventArgs());
+        Call("PastePlan_Click",window,new RoutedEventArgs());
+        var copies=repairGeometry["decorations"]!.AsArray().OfType<JsonObject>().TakeLast(2).ToArray();
+        Require(copies.Length==2 && copies[0]["name"]!.ToString().EndsWith("КОПИЯ1") && copies[1]["name"]!.ToString().EndsWith("КОПИЯ2"),
+            "Copying a label did not create independently numbered text copies");
+        objects.SelectedItem=Entry(tape);
+        type.GetField("selectedCallout",flags)!.SetValue(window,tape);
+        Call("DeleteSelection_Click",window,new RoutedEventArgs());
+        Require(tape["label"]?["visible"]?.GetValue<bool>()==false && repairGeometry["tapes"]!.AsArray().Contains(tape),
+            "Deleting a tape label also deleted the tape");
+        if(fixture is not null)Console.WriteLine("Supplied room plan passed wall repair, opening deletion and recutting.");
         Console.WriteLine("Editor logic passed: shared walls, joined corners, openings, orange multi-selection, label styles, grid-aligned routers and persistent tapes.");
     }
 }

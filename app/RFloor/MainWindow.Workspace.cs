@@ -104,13 +104,16 @@ public partial class MainWindow
             var doc=session==activeSession?document:session.Document;string? file=session==activeSession?path:session.Path;
             bool modified=session==activeSession?dirty:session.Dirty;
             string name=file is null?doc["name"]?.ToString()??L("Новый план"):
-                storageFiles.GetValueOrDefault(file)?.Name??System.IO.Path.GetFileName(file);
+                storageFiles.GetValueOrDefault(file)?.Name??System.IO.Path.GetFileName(Uri.TryCreate(file,UriKind.Absolute,out var fileUri) && fileUri.IsFile ? fileUri.LocalPath : file);
             bool contentFile=file is not null && Uri.TryCreate(file,UriKind.Absolute,out var uri) && uri.Scheme=="content";
             if(contentFile) {
                 name=Uri.UnescapeDataString(name);
                 name=name[(Math.Max(name.LastIndexOf(':'),name.LastIndexOf('/'))+1)..];
             }
-            session.Header.Text=PlanNameWithoutExtension(name)+".rfplan"+(modified?" *":"");
+            string stem=PlanNameWithoutExtension(name).Trim();
+            if(stem.Length==0)stem=PlanNameWithoutExtension(doc["name"]?.ToString()??"").Trim();
+            if(stem.Length==0)stem=L("Новый план");
+            session.Header.Text=stem+".rfplan"+(modified?" *":"");
             session.Tab.Tip=contentFile?session.Header.Text:file??session.Header.Text;
         }
         if(activeSession is not null)Title=activeSession.Header.Text+" — RFloor";

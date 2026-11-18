@@ -11,7 +11,7 @@ public partial class MainWindow
         ("save","Сохранить","Ctrl+S"),("saveAs","Сохранить как","Ctrl+Shift+S"),("close","Закрыть вкладку","Ctrl+W"),
         ("next","Следующая вкладка","Ctrl+Tab"),("previous","Предыдущая вкладка","Ctrl+Shift+Tab"),
         ("undo","Отменить","Ctrl+Z"),("redo","Повторить","Ctrl+Y"),("all","Выделить всё","Ctrl+A"),
-        ("delete","Удалить","Delete"),("rename","Переименовать","F2"),("fit","Показать весь план","Ctrl+D0"),
+        ("copy","Копировать","Ctrl+C"),("paste","Вставить","Ctrl+V"),("delete","Удалить","Delete"),("rename","Переименовать","F2"),("fit","Показать весь план","Ctrl+D0"),
         ("zoomIn","Увеличить","Ctrl+Add"),("zoomOut","Уменьшить","Ctrl+Subtract"),("settings","Настройки","Ctrl+OemComma"),
         ("select","Выделение","V"),("room","Комната","R"),("wall","Стена","W"),("door","Проём","D"),("tape","Рулетка","T"),
         ("point","Точка замера","M"),("cancel","Сбросить инструмент / отменить замер","Escape")
@@ -97,6 +97,7 @@ public partial class MainWindow
             case "save":await Save();break;case "saveAs":await Save(true);break;case "close":CloseTab_Click(this,args);break;
             case "next":case "previous":if(sessions.Count>1)ActivateSession(sessions[(sessions.IndexOf(activeSession!)+(action=="next"?1:sessions.Count-1))%sessions.Count]);break;
             case "undo":Undo_Click(this,args);break;case "redo":Redo_Click(this,args);break;case "all":SelectAll_Click(this,args);break;
+            case "copy":CopyPlan_Click(this,args);break;case "paste":PastePlan_Click(this,args);break;
             case "delete":DeleteSelection_Click(this,args);break;case "rename":Rename_Click(this,args);break;case "fit":Fit_Click(this,args);break;
             case "zoomIn":ZoomIn_Click(this,args);break;case "zoomOut":ZoomOut_Click(this,args);break;case "settings":Preferences_Click(this,args);break;
             case "select" when surveyMode:ToggleSurveyTool(SurveyTool.Select);break;

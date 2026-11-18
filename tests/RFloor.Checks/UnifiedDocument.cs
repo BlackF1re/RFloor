@@ -81,6 +81,23 @@ internal static class UnifiedDocument {
         var documentTabs=view.FindControl<TabControl>("DocumentTabs")!;
         Require(((TabItem)documentTabs.SelectedItem!).Header is StackPanel {Children:[TextBlock {Text:"sample.rfplan"},_]},
             "Android tab title contained a storage prefix or repeated extension.");
+        var saveDirectory=Directory.CreateTempSubdirectory("RFloor-check-");
+        try {
+            var nameless=System.IO.Path.Combine(saveDirectory.FullName,".rfplan");
+            Set("path",new Uri(nameless).AbsoluteUri);Set("dirty",true);
+            view.FindControl<RFloor.Controls.TextBox>("ProjectName")!.Text="Portable room";
+            for(int attempt=0;attempt<2;attempt++)
+            {
+                var localSave=(Task<bool>)Call("Save",false)!;
+                deadline=DateTime.UtcNow.AddSeconds(10);
+                while(!localSave.IsCompleted && DateTime.UtcNow<deadline){Dispatcher.UIThread.RunJobs();Thread.Sleep(1);}
+                Require(localSave.IsCompletedSuccessfully && localSave.Result,"Local plan save failed");
+            }
+            Require(File.Exists(System.IO.Path.Combine(saveDirectory.FullName,"Portable room.rfplan")) && !File.Exists(nameless),
+                "Local save produced a file without the project name");
+            Require(((TabItem)documentTabs.SelectedItem!).Header is StackPanel {Children:[TextBlock {Text:"Portable room.rfplan"},_]},
+                "The saved plan's tab did not show the filename.");
+        } finally {saveDirectory.Delete(true);}
         Call("AddDocument",restored,"imported.rfplan");
         Require(Get("surveyMode") is true,"An imported survey did not open in measurement mode.");
         var blank=(JsonObject)restored.DeepClone();
