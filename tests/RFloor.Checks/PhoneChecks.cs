@@ -64,6 +64,16 @@ internal static class PhoneChecks {
         Tap(At(150,280));
         Require(Get("touchCard") is not null,"Tapping an object did not open its label.");
         Tap(At(50,220));Require(Get("touchCard") is null,"Tapping away did not dismiss the label.");
+        var rightDrawer=view.FindControl<Border>("RightSidebar")!;
+        Call("TogglePanel",rightDrawer);
+        WaitUntil(()=>rightDrawer.IsEnabled && rightDrawer.RenderTransform is null);
+        var planObjectList=view.FindControl<ListBox>("Objects")!;
+        var row=planObjectList.GetVisualDescendants().OfType<ListBoxItem>().Single(item=>item.IsEffectivelyVisible);
+        Tap(row.TranslatePoint(new Point(22,row.Bounds.Height/2),host)!.Value);
+        Require(Get("touchCard") is Border {Parent:Grid root,ZIndex:303} && ReferenceEquals(root,view.Content),
+            "The object list did not open a card above the mobile drawer.");
+        view.HandleBack();
+        WaitUntil(()=>!rightDrawer.IsVisible);
         var oldFeedback=PlatformServices.LongPressFeedback;
         bool haptic=false;PlatformServices.LongPressFeedback=()=>haptic=true;
         try {
@@ -80,8 +90,8 @@ internal static class PhoneChecks {
             WaitUntil(()=>Get("touchGesture")?.ToString()=="Selection");
             host.TouchMove(finger,At(265,370));host.TouchEnd(finger,At(265,370));Layout();
         }
-        Require(view.FindControl<ListBox>("Objects")!.SelectedItems!.Count==1 && Get("touchCard") is null,
-            "Plan long press did not start marquee selection without opening an object card.");
+        Require(view.FindControl<ListBox>("Objects")!.SelectedItems!.Count==1 && Get("touchCard") is not null,
+            "Plan long press did not open the action card for the single object in its marquee.");
         Call("SetTool","rect");
         var zoom=(ScaleTransform)view.FindControl<LayoutTransformControl>("ZoomHost")!.LayoutTransform!;double before=zoom.ScaleX;
         using(var first=host.TouchBegin(At(100,100)))using(var second=host.TouchBegin(At(200,100))){host.TouchMove(second,At(270,100));host.TouchEnd(second,At(270,100));host.TouchEnd(first,At(100,100));}Layout();

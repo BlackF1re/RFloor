@@ -34,6 +34,11 @@ public partial class MainWindow
         Viewport.AddHandler(PointerPressedEvent, TouchPressed, RoutingStrategies.Tunnel);
         Viewport.AddHandler(PointerMovedEvent, TouchMoved, RoutingStrategies.Tunnel);
         Viewport.AddHandler(PointerReleasedEvent, TouchReleased, RoutingStrategies.Tunnel);
+        Objects.AddHandler(PointerReleasedEvent, Objects_OpenCard, RoutingStrategies.Bubble, handledEventsToo:true);
+        Objects.KeyUp+=(_,e)=>{
+            if(e.Key is Key.Up or Key.Down or Key.Home or Key.End or Key.Enter or Key.Space)
+                ShowSelectedObjectCard(new Point(Viewport.Bounds.Width,Viewport.Bounds.Height/2));
+        };
         Viewport.PointerCaptureLost += (_, e) => {
             if (!touches.Remove(e.Pointer.Id)) return;
             CancelTouchGesture(clearTapePreview:true);
@@ -95,8 +100,8 @@ public partial class MainWindow
                 if(DeleteTapeAt(World(local,false))) {
                     touchGesture=TouchGesture.Consumed;
                     PlatformServices.LongPressFeedback?.Invoke();
-                } else if(tapeStart is null) {
-                    TapeClick(TapeSnap(World(local,false)));
+                } else {
+                    if(tapeStart is null)TapeClick(TapeSnap(World(local,false)));
                     touchGesture=TouchGesture.Drawing;
                     PlatformServices.LongPressFeedback?.Invoke();
                 }
@@ -166,7 +171,7 @@ public partial class MainWindow
             CancelTouchGesture();
             if(CanMove(item,delta)) MoveSelected(item,delta);
         } else if(touchGesture==TouchGesture.Selection && marqueeStart is Point first) {
-            SelectMarquee(first,World(local,false));
+            SelectMarquee(first,World(local,false),e.GetPosition(Viewport));
         } else if(touchGesture==TouchGesture.PointPlacement) {
             var position=e.GetPosition(Viewport);
             _=FinishSurveyPlacement(local,position,14,((Vector)(position-touchOrigin)).Length>TouchSlop);
@@ -215,7 +220,8 @@ public partial class MainWindow
         if(surveyMode || tool=="select") {
             var hit=touchLabelTarget ?? HitObject(point,14/(Scale*PlanZoom.ScaleX));
             Objects.SelectedItem=hit;
-            if(hit is not null) ShowTouchCard(hit,viewportPoint);
+            if(surveyMode && hit is not null) ShowTouchCard(hit,viewportPoint);
+            else ShowSelectedObjectCard(viewportPoint);
             return;
         }
         if(tool=="tape") { TapeClick(TapeSnap(point)); return; }
@@ -267,10 +273,19 @@ public partial class MainWindow
         Ui.SetZIndex(touchAnchorMarker,150);
         Plan.Children.Add(touchAnchorMarker);
     }
+    private void ShowSelectedObjectCard(Point position)
+    {
+        if(surveyMode)return;
+        if(Objects.SelectedItems?.Count==1 && Objects.SelectedItem is ObjectEntry entry)
+            ShowTouchCard(entry,position);
+        else HideTouchCard();
+    }
+
     private void ShowTouchCard(ObjectEntry hit,Point position)
     {
         HideTouchCard();
-        var grid=(Grid)Viewport.Parent!;
+        bool overDrawer=compactLayout && RightSidebar.IsEnabled && hit.Kind!="point";
+        var grid=overDrawer?(Grid)Content!:(Grid)Viewport.Parent!;
         Control details=hit.Kind=="point"?PointDetails(hit.Item):IsLabelVisible(hit)?LabelText(hit):
             new TextBlock {Text=ObjectName(hit.Item,hit.Label),FontWeight=FontWeights.SemiBold};
         if(details is TextBlock label) label.TextWrapping=TextWrapping.Wrap;
@@ -283,10 +298,11 @@ public partial class MainWindow
             Child=content,
             Background=Brushes.White, BorderBrush=Brushes.LightGray, BorderThickness=new Thickness(1),
             CornerRadius=new CornerRadius(8), Padding=new Thickness(8),
-            Margin=new Thickness(8), MaxWidth=Math.Max(80,Math.Min(350,grid.Bounds.Width-16)),
-            MaxHeight=Math.Max(72,grid.Bounds.Height*.46),
+            Margin=overDrawer?new Thickness(8,8,8,84):new Thickness(8),
+            MaxWidth=Math.Max(80,Math.Min(350,grid.Bounds.Width-16)),
+            MaxHeight=Math.Max(72,grid.Bounds.Height*.46), ZIndex=overDrawer?303:10,
             HorizontalAlignment=position.X<grid.Bounds.Width/2?HorizontalAlignment.Right:HorizontalAlignment.Left,
-            VerticalAlignment=position.Y<grid.Bounds.Height/2?VerticalAlignment.Bottom:VerticalAlignment.Top
+            VerticalAlignment=overDrawer || position.Y<grid.Bounds.Height/2?VerticalAlignment.Bottom:VerticalAlignment.Top
         };
         grid.Children.Add(touchCard);
     }

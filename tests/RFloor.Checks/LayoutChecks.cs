@@ -144,6 +144,23 @@ internal static class LayoutChecks {
         host.MouseUp(to,MouseButton.Left);Layout();
         Require(sample["geometry"]!["decorations"]!.AsArray().Count==decorations+1,"Construction did not commit on release.");
 
+        Call("SetTool","select");Layout();
+        host.MouseDown(At(515,312),MouseButton.Left);
+        host.MouseMove(At(516,313),RawInputModifiers.LeftMouseButton);
+        host.MouseUp(At(516,313),MouseButton.Left);Layout();
+        var cardField=typeof(MainWindow).GetField("touchCard",flags)!;
+        void RequireObjectCard(string source) {
+            var actions=(cardField.GetValue(view) as Border)?.GetVisualDescendants().OfType<Button>()
+                .Select(button=>button.Content).ToArray() ?? [];
+            Require(actions.Contains(Localization.L("Удалить")) && actions.Contains(Localization.L("Свойства")),
+                "Object actions were missing after selection from "+source+".");
+        }
+        RequireObjectCard("the canvas with slight mouse movement");
+        var row=objects.GetVisualDescendants().OfType<ListBoxItem>().First(item=>item.IsEffectivelyVisible);
+        var rowPoint=row.TranslatePoint(new Point(10,row.Bounds.Height/2),host)!.Value;
+        host.MouseDown(rowPoint,MouseButton.Left);host.MouseUp(rowPoint,MouseButton.Left);Layout();
+        RequireObjectCard("the object list");
+
         Call("SetTool","tape");Layout();
         viewport.AllowAutoHide=false;
         viewport.Offset=new Vector(120,130);Layout();

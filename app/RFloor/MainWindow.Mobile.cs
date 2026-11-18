@@ -50,7 +50,7 @@ public partial class MainWindow {
                 CanvasPanelTabs.Children.Remove(button);root.Children.Add(button);
                 button.ZIndex=302;
             }
-            Objects.SelectionMode=SelectionMode.Multiple|SelectionMode.Toggle;ModeSwitch.Width=116;StatusBar.IsVisible=true;CanvasDock.Height=44;ZoomLabel.IsVisible=false;GridPicker.MinHeight=40;GridPicker.Height=40;
+            Objects.SelectionMode=surveyMode?SelectionMode.Multiple|SelectionMode.Toggle:SelectionMode.Multiple;ModeSwitch.Width=116;StatusBar.IsVisible=true;CanvasDock.Height=44;ZoomLabel.IsVisible=false;GridPicker.MinHeight=40;GridPicker.Height=40;
             if(StatusBar.Child is DockPanel statusDock)statusDock.Children[0].IsVisible=false;
             Status.FontSize=11;Status.TextTrimming=TextTrimming.CharacterEllipsis;
             foreach(var button in CanvasDock.GetLogicalDescendants().OfType<Avalonia.Controls.Button>()){

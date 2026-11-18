@@ -12,7 +12,7 @@ public partial class MainWindow
         return area.Contains(new Point(Number(obj["x"]),Number(obj["y"])));
     }
     private Rectangle? marquee;
-    private void SelectMarquee(Point first, Point last)
+    private void SelectMarquee(Point first, Point last, Point position)
     {
         marqueeStart=marqueeEnd=null;
         ClearMarquee();
@@ -25,6 +25,7 @@ public partial class MainWindow
                 if (!selection.Contains(entry)) selection.Add(entry);
         } finally { updating=false; }
         Objects_SelectionChanged(Objects,null!);
+        ShowSelectedObjectCard(position);
     }
     private void ClearMarquee()
     {
@@ -73,6 +74,13 @@ public partial class MainWindow
         if(e.ClickCount!=2)return;
         if(e.Source is Control source && source.FindAncestorOfType<ListBoxItem>() is ListBoxItem item)
         { Objects.SelectedItem=item.Content; Rename_Click(sender,e); e.Handled=true; }
+    }
+
+    private void Objects_OpenCard(object? sender,PointerReleasedEventArgs e)
+    {
+        if(e.Pointer.Type!=PointerType.Touch && e.Button()!=MouseButton.Left)return;
+        if(e.Source is Visual source && source.GetSelfAndVisualAncestors().OfType<ListBoxItem>().FirstOrDefault() is {IsSelected:true})
+            ShowSelectedObjectCard(e.GetPosition(Viewport));
     }
     private void Rename_Click(object sender,RoutedEventArgs e)
     {

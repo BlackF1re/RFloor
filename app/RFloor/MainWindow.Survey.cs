@@ -43,6 +43,7 @@ public partial class MainWindow
     {
         if (measurementCancellation is not null || activeSession is null) return;
         CommitInlineRename(); ResetPointerTools(); surveyMode=survey; EditorPanel.IsVisible=!survey; SurveyPanel.IsVisible=survey;
+        Objects.SelectionMode=compactLayout && survey?SelectionMode.Multiple|SelectionMode.Toggle:SelectionMode.Multiple;
         ObjectHeading.Text=survey?L("Точки замера"):L("Объекты"); ObjectSubtitle.Text=survey?L("Выберите точку, чтобы просмотреть её замеры"):L("Стены, комнаты и проёмы");
         DeleteButton.IsVisible=!survey;
 

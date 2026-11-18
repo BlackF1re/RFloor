@@ -316,7 +316,7 @@ public partial class MainWindow : SurfaceWindow
             if (PointerContext.Modifiers.HasFlag(KeyModifiers.Shift)) { marqueeStart=marqueeEnd=World(local,false); Plan.CapturePointer(); return; }
             SelectAt(World(local, false));
             if (e.Clicks()==2 && Objects.SelectedItem is not null) { Rename_Click(sender,e); return; }
-            if (PointerContext.Modifiers.HasFlag(KeyModifiers.Control)) return;
+            if (PointerContext.Modifiers.HasFlag(KeyModifiers.Control)) { ShowSelectedObjectCard(e.GetPosition(Viewport)); return; }
             if (Objects.SelectedItem is null) { marqueeStart=marqueeEnd=World(local,false); Plan.CapturePointer(); return; }
             if (Objects.SelectedItem is ObjectEntry selected) { dragItem = selected; dragStart = World(local, false); Plan.CapturePointer(); }
             return;
@@ -335,7 +335,9 @@ public partial class MainWindow : SurfaceWindow
         if (marqueeStart is not null && Plan.IsPointerCaptured()) { marqueeEnd=World(e.GetPosition(Plan),false); DrawMarquee(); return; }
         if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured())
         {
-            var delta=AdjustDrag(item,World(e.GetPosition(Plan),false)-from);
+            Vector movement=World(e.GetPosition(Plan),false)-from;
+            if(dragPreview.Count==0 && movement.Length*Scale*PlanZoom.ScaleX<4)return;
+            var delta=AdjustDrag(item,movement);
             if(dragPreview.Count>0 && dragDelta==delta)return;
             dragDelta=delta;
             Status.Text=DrawDragPreview() ? L("Отпустите кнопку мыши, чтобы переместить объект.") : L("Здесь объект пересекается с другим или выходит за допустимые границы.");
@@ -362,14 +364,17 @@ public partial class MainWindow : SurfaceWindow
             return;
         }
         if(drawingStart is not null && e.Button()!=drawingButton)return;
-        if (marqueeStart is Point first) { Plan.ReleasePointer(); SelectMarquee(first,World(e.GetPosition(Plan),false)); return; }
+        if (marqueeStart is Point first) { Plan.ReleasePointer(); SelectMarquee(first,World(e.GetPosition(Plan),false),e.GetPosition(Viewport)); return; }
         if (dragStart is Point from && dragItem is ObjectEntry item && Plan.IsPointerCaptured())
         {
             Point to = World(e.GetPosition(Plan), false); var delta = AdjustDrag(item, to-from); bool valid = CanMove(item, delta); Plan.ReleasePointer(); dragStart = null; dragItem = null; dragDelta = new Vector();
-            if (((Vector)(to-from)).Length * Scale * PlanZoom.ScaleX >= 4 && delta.Length>=1e-8 && valid) MoveSelected(item, delta);
-            else if(dragPreview.Count>0) RenderPlan();
-            else if(((Vector)(to-from)).Length*Scale*PlanZoom.ScaleX<4 && Objects.SelectedItems.Count==1)
-                ShowTouchCard(item,e.GetPosition(Viewport));
+            bool clicked=((Vector)(to-from)).Length*Scale*PlanZoom.ScaleX<4;
+            if (!clicked && delta.Length>=1e-8 && valid) MoveSelected(item, delta);
+            else {
+                if(dragPreview.Count>0) RenderPlan();
+                if(clicked && surveyMode) ShowTouchCard(item,e.GetPosition(Viewport));
+                else if(clicked) ShowSelectedObjectCard(e.GetPosition(Viewport));
+            }
             return;
         }
         if (drawingStart is not Point start || !Plan.IsPointerCaptured()) return;
