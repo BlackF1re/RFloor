@@ -81,6 +81,21 @@ internal static class UnifiedDocument {
         var documentTabs=view.FindControl<TabControl>("DocumentTabs")!;
         Require(((TabItem)documentTabs.SelectedItem!).Header is StackPanel {Children:[TextBlock {Text:"sample.rfplan"},_]},
             "Android tab title contained a storage prefix or repeated extension.");
+        Set("autoSaveEnabled",true);
+        Set("dirty",true);
+        view.FindControl<RFloor.Controls.TextBox>("ProjectName")!.Text="Autosaved survey";
+        Call("AddDocument",(JsonObject)restored.DeepClone(),null);
+        Set("dirty",true);
+        var autoSave=(Task)Call("AutoSaveProjectsAsync")!;
+        deadline=DateTime.UtcNow.AddSeconds(10);
+        while(!autoSave.IsCompleted && DateTime.UtcNow<deadline){Dispatcher.UIThread.RunJobs();Thread.Sleep(1);}
+        Require(autoSave.IsCompletedSuccessfully &&
+            JsonNode.Parse(target.Bytes.ToArray())!["name"]?.ToString()=="Autosaved survey" && Get("dirty") is true,
+            "Autosave did not persist the inactive project or changed the unsaved project.");
+        var firstTab=(TabItem)documentTabs.Items[0]!;
+        Require(firstTab.Header is StackPanel {Children:[TextBlock {Text:"sample.rfplan"},_]},
+            "Autosave did not clear the saved tab's dirty flag.");
+        Call("ActivateSession",firstTab.Tag);
         var saveDirectory=Directory.CreateTempSubdirectory("RFloor-check-");
         try {
             var nameless=System.IO.Path.Combine(saveDirectory.FullName,".rfplan");
@@ -111,9 +126,17 @@ internal static class UnifiedDocument {
             blank["points"]!.AsArray().Add(new JsonObject {["id"]=$"tile-{i}",["x"]=x+w*(i==1?.7:.3),["y"]=y+h*(i==2?.7:.3),
                 ["band"]="5",["measurements"]=new JsonObject {["rssi"]=-50-i,
                     ["pings"]=new JsonArray(new JsonObject {["target"]="192.168.2.1",["avg"]=20+40*i})}});
+        var layerObjects=blank["geometry"]!["decorations"]!.AsArray();
+        layerObjects.Add(new JsonObject {["id"]="coverage-primitive",["kind"]="rectangle",["x"]=x,["y"]=y,["w"]=1,["h"]=1});
+        layerObjects.Add(new JsonObject {["id"]="coverage-router",["kind"]="router",["x"]=x+1,["y"]=y+1,["w"]=.2,["h"]=.2});
         Call("SwitchMode",true);
-        var firstTile=plan.Children.OfType<Image>().Single().Source;
-        Require(firstTile is Avalonia.Media.Imaging.WriteableBitmap,"Coverage was not rendered as a continuous image.");
+        var coverage=plan.Children.OfType<Image>().Single();
+        var firstTile=coverage.Source;
+        Require(firstTile is Avalonia.Media.Imaging.WriteableBitmap && !coverage.IsHitTestVisible,
+            "Coverage was not rendered as a non-interactive continuous image.");
+        int LayerOf(JsonNode? item)=>plan.Children.OfType<Control>().First(control=>ReferenceEquals(control.Tag,item)).ZIndex;
+        Require(LayerOf(layerObjects[^2])<coverage.ZIndex && coverage.ZIndex<LayerOf(layerObjects[^1]) &&
+            coverage.ZIndex<LayerOf(blank["points"]![0]),"Coverage obscured a router or measurement point, or stayed behind a primitive.");
         Call("RenderPlan");
         Require(ReferenceEquals(firstTile,plan.Children.OfType<Image>().Single().Source),"An unchanged plan rerasterized the layer.");
         host.Show();Dispatcher.UIThread.RunJobs();host.UpdateLayout();

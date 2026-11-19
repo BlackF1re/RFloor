@@ -277,6 +277,7 @@ public partial class MainWindow
         using var cancellation=new CancellationTokenSource();
         measurementCancellation=cancellation;
         var currentDocument=document;
+        bool measurementStarted=false;
         string requestedBand=targetBand??Band;
         string? requestedAccessPoint=targetBand is null?SelectedAccessPoint:targetAccessPoint;
         int delay=(int)MeasurementDelay.Value;
@@ -320,6 +321,8 @@ public partial class MainWindow
                 UpdateMeasurementMarker();
             }
             Status.Text=L("Выполняется замер сети…");
+            measurementStarted=true;
+            if(measurementStartHaptics) PlayHaptics(2);
             var result=await NetworkMeasurements.RunSurveyAsync(options.Signal,options.Ping?options.Targets:[],options.Count,(options.Download || options.Upload)?options.Host:null,options.Port,options.Duration,cancellation.Token,options.Download,options.Upload);
             if (!ReferenceEquals(document,currentDocument) || !Points.Contains(item)) { Status.Text=L("Проект изменён, результат замера не применён."); return; }
             string? detected=result["band"]?.ToString();
@@ -380,12 +383,17 @@ public partial class MainWindow
             measurementAnimation.Reset();
             animatedPoint=null; animatedMarker=[];
             measurementCancellation=null; MeasureButton.IsVisible=false; HistoryTools.IsVisible=true;
-            if(ReferenceEquals(document,currentDocument) && Points.Contains(item)) RenderPlan();
+            if(ReferenceEquals(document,currentDocument) && Points.Contains(item)) {
+                if(measurementStarted && !cancellation.IsCancellationRequested && measurementEndHaptics)
+                    PlayHaptics(item["measurementState"]?.ToString()=="complete"?2:3);
+                RenderPlan();
+            }
         }
     }
-    private const double SurveyDotDiameter=1.5, SurveyDiameterStep=3;
-    private const double SurveyMarkerSize=SurveyDotDiameter+2*SurveyDiameterStep;
-    private const double SurveyFocusSize=SurveyDotDiameter+3*SurveyDiameterStep;
+    private const double SurveyDotDiameter=2.15, SurveyRingStroke=.5, SurveyRingSpacing=1.5;
+    private const double SurveyInnerRingSize=4+SurveyRingStroke;
+    private const double SurveyMarkerSize=SurveyInnerRingSize+2*SurveyRingSpacing;
+    private const double SurveyFocusSize=SurveyMarkerSize+2*SurveyRingSpacing;
     private const int SurveyMarkerLayer=152;
     private Border? hoveredSurveyPoint;
     private Ellipse? surveyHoverRing;
@@ -442,7 +450,7 @@ public partial class MainWindow
         }
     }
     private Control[] PointMarkerParts(Point position, IBrush color, object tag) =>
-        [CreatePointMarker(position,color,tag,SurveyDotDiameter,fill:color),CreatePointMarker(position,color,tag,SurveyDotDiameter+SurveyDiameterStep),
+        [CreatePointMarker(position,color,tag,SurveyDotDiameter,fill:color),CreatePointMarker(position,color,tag,SurveyInnerRingSize),
          CreatePointMarker(position,color,tag,SurveyMarkerSize)];
 
     private void UpdateMeasurementMarker()
@@ -472,7 +480,7 @@ public partial class MainWindow
     private Ellipse CreatePointMarker(Point position, IBrush stroke, object? tag, double size, double opacity = 1, IBrush? fill = null)
     {
         var marker = new Ellipse {
-            Width=size, Height=size, Stroke=fill is null?stroke:null, StrokeThickness=.75,Fill=fill,
+            Width=size, Height=size, Stroke=fill is null?stroke:null, StrokeThickness=SurveyRingStroke,Fill=fill,
             IsHitTestVisible=false, UseLayoutRounding=false, Tag=tag, Opacity=opacity, ZIndex=SurveyMarkerLayer,
             Clip=SurveyMarkerClip(position,size)
         };

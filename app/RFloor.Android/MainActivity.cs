@@ -14,12 +14,31 @@ public class MainActivity : AvaloniaMainActivity {
     #pragma warning disable CS0672, CS0618
     public override async void OnBackPressed(){if(Avalonia.Application.Current is RFloor.App app && app.View is {} view){if(view.HandleBack())return;if(!await view.RequestClose())return;}base.OnBackPressed();}
     #pragma warning restore CS0672, CS0618
-    protected override void OnCreate(Bundle? state){PlatformServices.LongPressFeedback=()=>Window?.DecorView?.PerformHapticFeedback(global::Android.Views.FeedbackConstants.LongPress);PlatformServices.WifiReader=ReadWifi;PlatformServices.IperfRunner=NativeIperf.Run; base.OnCreate(state);
+    protected override void OnCreate(Bundle? state){PlatformServices.HapticFeedback=Vibrate;PlatformServices.WifiReader=ReadWifi;PlatformServices.IperfRunner=NativeIperf.Run; base.OnCreate(state);
 #if RFLOOR_PLATFORM_CHECKS
         if(Intent?.GetBooleanExtra("rfloor_platform_checks",false)==true)_=PlatformChecks.Run(this);
 #endif
     }
     protected override void OnResume(){base.OnResume();if(!requested){requested=true;var permissions=new List<string>{Manifest.Permission.AccessCoarseLocation,Manifest.Permission.AccessFineLocation};if(OperatingSystem.IsAndroidVersionAtLeast(33))permissions.Add(Manifest.Permission.NearbyWifiDevices);var missing=permissions.Where(p=>CheckSelfPermission(p)!=Permission.Granted).ToArray();if(missing.Length>0)RequestPermissions(missing,1);}}
+    private void Vibrate(int pulses,int strength)
+    {
+        #pragma warning disable CS0618, CA1422
+        var vibrator=OperatingSystem.IsAndroidVersionAtLeast(31)
+            ? (GetSystemService(VibratorManagerService) as VibratorManager)?.DefaultVibrator
+            : GetSystemService(VibratorService) as Vibrator;
+        #pragma warning restore CS0618, CA1422
+        if(vibrator?.HasVibrator!=true)return;
+        bool amplitudeControl=vibrator.HasAmplitudeControl;
+        int duration=amplitudeControl?25:12+23*strength/100;
+        int amplitude=amplitudeControl?Math.Max(1,255*strength/100):VibrationEffect.DefaultAmplitude;
+        var timings=new long[pulses*2-1];
+        var amplitudes=new int[timings.Length];
+        for(int i=0;i<timings.Length;i++) {
+            timings[i]=i%2==0?duration:55;
+            amplitudes[i]=i%2==0?amplitude:0;
+        }
+        vibrator.Vibrate(VibrationEffect.CreateWaveform(timings,amplitudes,-1));
+    }
     private Task<JsonObject> ReadWifi(CancellationToken token){
         token.ThrowIfCancellationRequested();
         if(CheckSelfPermission(Manifest.Permission.AccessFineLocation)!=Permission.Granted)throw new InvalidOperationException(PlatformServices.Text("Разрешите точное местоположение в настройках приложения Android."));

@@ -6,6 +6,10 @@ public partial class MainWindow
 {
     private bool showGrid=true,showObjectLabels=true;
     private double zoomFactor=1.25;
+    private bool hapticsEnabled=true,dragHaptics=true,measurementStartHaptics=true,measurementEndHaptics=true;
+    private int hapticIntensity=60;
+    private bool autoSaveEnabled=true;
+    private int autoSaveSeconds=60;
     private static readonly (string Id,string Label,string Gesture)[] ShortcutDefaults=[
         ("new","Новый план","Ctrl+N"),("survey","Режим замеров","Ctrl+Shift+N"),("open","Открыть","Ctrl+O"),
         ("save","Сохранить","Ctrl+S"),("saveAs","Сохранить как","Ctrl+Shift+S"),("close","Закрыть вкладку","Ctrl+W"),
@@ -36,6 +40,13 @@ public partial class MainWindow
     {
         try {
             if(File.Exists(PreferencesPath) && new FileInfo(PreferencesPath).Length<64000 && JsonNode.Parse(File.ReadAllText(PreferencesPath)) is JsonObject prefs) {
+                hapticsEnabled=prefs["hapticsEnabled"]?.GetValue<bool>()??true;
+                hapticIntensity=Math.Clamp(prefs["hapticIntensity"]?.GetValue<int>()??60,10,100);
+                dragHaptics=prefs["dragHaptics"]?.GetValue<bool>()??true;
+                measurementStartHaptics=prefs["measurementStartHaptics"]?.GetValue<bool>()??true;
+                measurementEndHaptics=prefs["measurementEndHaptics"]?.GetValue<bool>()??true;
+                autoSaveEnabled=prefs["autoSaveEnabled"]?.GetValue<bool>()??true;
+                autoSaveSeconds=Math.Clamp(prefs["autoSaveSeconds"]?.GetValue<int>()??60,15,300);
                 showGrid=prefs["showGrid"]?.GetValue<bool>()??true;showObjectLabels=prefs["showObjectLabels"]?.GetValue<bool>()??true;
                 gridView=showGrid?Math.Clamp(prefs["gridView"]?.GetValue<int>()??0,0,1):2;
                 GridViewButton.Content=gridView switch {0=>"▦",1=>"⠿",_=>"□"};
@@ -54,6 +65,13 @@ public partial class MainWindow
     private void SavePreferences()
     {
         var prefs=new JsonObject { ["showGrid"]=showGrid,["showObjectLabels"]=showObjectLabels,["labelOpacity"]=labelOpacity,["zoomFactor"]=zoomFactor,["rulerMode"]=rulerMode,["snap"]=SnapEnabled.IsChecked==true,["shortcuts"]=new JsonObject(shortcuts.Select(x=>new KeyValuePair<string,JsonNode?>(x.Key,JsonValue.Create(x.Value)))) };
+        prefs["hapticsEnabled"]=hapticsEnabled;
+        prefs["hapticIntensity"]=hapticIntensity;
+        prefs["dragHaptics"]=dragHaptics;
+        prefs["measurementStartHaptics"]=measurementStartHaptics;
+        prefs["measurementEndHaptics"]=measurementEndHaptics;
+        prefs["autoSaveEnabled"]=autoSaveEnabled;
+        prefs["autoSaveSeconds"]=autoSaveSeconds;
         prefs["gridView"]=gridView;
         prefs["labelDefaults"]=labelDefaults.DeepClone();
         prefs["language"]=Localization.Language;

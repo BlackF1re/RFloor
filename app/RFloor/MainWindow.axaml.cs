@@ -137,6 +137,14 @@ public partial class MainWindow : SurfaceWindow
     private readonly Dictionary<string,IStorageFile> storageFiles=[];
     private async Task<bool> Save(bool saveAs=false)
     {
+        var session=activeSession;
+        if(session is null)return false;
+        await saveGate.WaitAsync();
+        try { return session==activeSession && await SaveProjectAsync(saveAs); }
+        finally { saveGate.Release(); }
+    }
+    private async Task<bool> SaveProjectAsync(bool saveAs)
+    {
         if(activeSession is null)return false;CommitInlineRename();if(!CommitDocumentSettings())return false;
         try {
             var storage=TopLevel.GetTopLevel(this)!.StorageProvider;
@@ -153,7 +161,7 @@ public partial class MainWindow : SurfaceWindow
                 file=await storage.SaveFilePickerAsync(new FilePickerSaveOptions {Title=L("Сохранить"),SuggestedFileName=SafePlanName(),DefaultExtension="rfplan",FileTypeChoices=[PlanFileType],ShowOverwritePrompt=true});
             local??=file?.TryGetLocalPath();
             if(file is null && local is null)return false;
-            string json=document.ToJsonString(new JsonSerializerOptions {WriteIndented=true})+Environment.NewLine;
+            string json=SerializeProject(document);
             if(local is not null)
             {
                 var destination=NamedPlanPath(local,SafePlanName());
@@ -161,15 +169,13 @@ public partial class MainWindow : SurfaceWindow
                 if(!original && File.Exists(destination) &&
                     await MessageBox.Ask(this,L("Заменить файл «{0}»?",System.IO.Path.GetFileName(destination)),L("Сохранить"),MessageBoxButton.YesNoCancel,MessageBoxImage.Question)!=MessageBoxResult.Yes)
                     return false;
-                string temp=destination+"."+Guid.NewGuid().ToString("N")+".tmp";
-                try {await File.WriteAllTextAsync(temp,json);File.Move(temp,destination,true);}
-                finally {if(File.Exists(temp))File.Delete(temp);}
+                await WriteProjectFileAsync(destination,null,json);
                 path=original && file is not null?file.Path.ToString():new Uri(destination).AbsoluteUri;
                 if(original && file is not null)storageFiles[path]=file;
                 dirty=false;RefreshTabHeaders();Status.Text=L("Сохранено: {0}",System.IO.Path.GetFileName(destination));return true;
             }
-            {await using var output=await file!.OpenWriteAsync();if(output.CanSeek)output.SetLength(0);await using var writer=new StreamWriter(output);await writer.WriteAsync(json);}
-            path=file.Path.ToString();storageFiles[path]=file;dirty=false;RefreshTabHeaders();Status.Text=L("Сохранено: {0}",file.Name);return true;
+            await WriteProjectFileAsync(null,file,json);
+            path=file!.Path.ToString();storageFiles[path]=file;dirty=false;RefreshTabHeaders();Status.Text=L("Сохранено: {0}",file.Name);return true;
         }catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidOperationException){MessageBox.Show(this,ex.Message,L("Не удалось сохранить"));return false;}
     }
     internal static string NamedPlanPath(string local,string fallback)
@@ -187,7 +193,7 @@ public partial class MainWindow : SurfaceWindow
     {
         if(measurementCancellation is not null){measurementCancellation.Cancel();return false;}
         CommitInlineRename();CaptureSession();foreach(var session in sessions.ToArray()){ActivateSession(session);if(!await ConfirmDiscard())return false;}
-        EndPan();networkTimer.Stop();trayIcon?.Dispose();return true;
+        EndPan();networkTimer.Stop();autoSaveTimer.Stop();trayIcon?.Dispose();return true;
     }
     private double Screen(double value) => origin + value * Scale;
     private void RenderPlan()

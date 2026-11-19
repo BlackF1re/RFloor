@@ -197,7 +197,7 @@ public partial class MainWindow
         }
         foreach(var (bounds,_,bitmap) in cache.Tiles) {
             var image=new Image {Source=bitmap,Width=bounds.Width*Scale,Height=bounds.Height*Scale,
-                Stretch=Stretch.Fill,IsHitTestVisible=false,UseLayoutRounding=false};
+                Stretch=Stretch.Fill,IsHitTestVisible=false,UseLayoutRounding=false,ZIndex=SurveyMarkerLayer-2};
             RenderOptions.SetBitmapInterpolationMode(image,BitmapInterpolationMode.MediumQuality);
             Canvas.SetLeft(image,Screen(bounds.X)); Canvas.SetTop(image,Screen(bounds.Y)); Plan.Children.Add(image);
         }

@@ -10,6 +10,7 @@ public partial class MainWindow
     private double pinchDistance;
     private IDisposable? touchHold;
     private Point? touchDrawingAnchor;
+    private Point? touchHapticCell;
     private Ellipse? touchAnchorMarker;
     private ObjectEntry? touchLabelTarget;
     private Border? touchDraggedLabel;
@@ -86,6 +87,7 @@ public partial class MainWindow
         if(measurementCancellation is not null) return;
         if(surveyMode && surveyTool==SurveyTool.Add) {
             touchGesture=TouchGesture.PointPlacement;
+            TrackDragHaptics(SurveyPosition(local));
             return;
         }
         if(!surveyMode && tool=="select" && touchLabelTarget is {} callout)
@@ -95,7 +97,7 @@ public partial class MainWindow
             touchHold=DispatcherTimer.RunOnce(()=>{
                 marqueeStart=marqueeEnd=World(local,false);
                 touchGesture=TouchGesture.Selection;
-                PlatformServices.LongPressFeedback?.Invoke();
+                PlayHaptics(1);
             },TimeSpan.FromMilliseconds(475));
         else if((surveyMode && surveyTool == SurveyTool.None || !surveyMode && tool=="select") && hit is not null)
             touchHold=DispatcherTimer.RunOnce(()=>StartTouchDrag(hit,local),TimeSpan.FromMilliseconds(475));
@@ -103,19 +105,20 @@ public partial class MainWindow
             touchHold=DispatcherTimer.RunOnce(()=>{
                 if(DeleteTapeAt(World(local,false))) {
                     touchGesture=TouchGesture.Consumed;
-                    PlatformServices.LongPressFeedback?.Invoke();
+                    PlayHaptics(1);
                 } else {
                     if(tapeStart is null)TapeClick(TapeSnap(World(local,false)));
                     touchGesture=TouchGesture.Drawing;
-                    PlatformServices.LongPressFeedback?.Invoke();
+                    PlayHaptics(1);
                 }
             },TimeSpan.FromMilliseconds(475));
         else if(!surveyMode && tool!="select")
             touchHold=DispatcherTimer.RunOnce(()=>{
                 touchDrawingAnchor=tool is "text" or "router"?null:World(local,tool!="wall");
                 touchGesture=TouchGesture.Drawing;
+                TrackDragHaptics(World(local,false));
                 PreviewTouch(local);
-                PlatformServices.LongPressFeedback?.Invoke();
+                PlayHaptics(1);
             },TimeSpan.FromMilliseconds(475));
     }
 
@@ -141,14 +144,19 @@ public partial class MainWindow
             } else PanBy(touchLast-next);
         } else if(touchGesture==TouchGesture.ObjectDrag && dragItem is {} item && dragStart is Point start) {
             dragDelta=AdjustDrag(item,World(e.GetPosition(Plan),false)-start);
+            TrackDragHaptics(new Point(dragDelta.X,dragDelta.Y));
             DrawDragPreview();
         } else if(touchGesture==TouchGesture.LabelDrag && touchDraggedLabel is {} label) {
-            MoveTouchLabel(label,touchLabelPosition+(e.GetPosition(Plan)-touchLabelStart));
+            Point position=touchLabelPosition+(e.GetPosition(Plan)-touchLabelStart);
+            TrackDragHaptics(World(position,false));
+            MoveTouchLabel(label,position);
         } else if(touchGesture==TouchGesture.Selection) {
             marqueeEnd=World(e.GetPosition(Plan),false);
             DrawMarquee();
         } else if(touchGesture is TouchGesture.PointPlacement or TouchGesture.Drawing) {
-            PreviewTouch(e.GetPosition(Plan));
+            Point local=e.GetPosition(Plan);
+            TrackDragHaptics(touchGesture==TouchGesture.PointPlacement?SurveyPosition(local):World(local,false));
+            PreviewTouch(local);
         } else if(touchGesture==TouchGesture.Pan || touchGesture==TouchGesture.Tap && ((Vector)(next-touchOrigin)).Length>TouchSlop) {
             bool starting=touchGesture==TouchGesture.Tap;
             if(starting) CancelTouchGesture(clearTapePreview:true);
@@ -205,7 +213,8 @@ public partial class MainWindow
         touchLabelStart=local;
         touchLabelPosition=new Point(Canvas.GetLeft(label),Canvas.GetTop(label));
         touchGesture=TouchGesture.LabelDrag;
-        PlatformServices.LongPressFeedback?.Invoke();
+        TrackDragHaptics(World(touchLabelPosition,false));
+        PlayHaptics(1);
     }
 
     private void MoveTouchLabel(Border label,Point position)
@@ -228,7 +237,8 @@ public partial class MainWindow
         dragItem=selected;
         dragStart=World(local,false);
         touchGesture=TouchGesture.ObjectDrag;
-        PlatformServices.LongPressFeedback?.Invoke();
+        TrackDragHaptics(default);
+        PlayHaptics(1);
         RenderPlan();
     }
 
@@ -285,6 +295,7 @@ public partial class MainWindow
             touchDraggedLabel=null;
         }
         touchLabelTarget=null;
+        touchHapticCell=null;
         if (touchGesture == TouchGesture.Selection) {
             marqueeStart=marqueeEnd=null;
             ClearMarquee();
@@ -304,6 +315,19 @@ public partial class MainWindow
         }
         if(pointPreview is not null) { pointPreview=null; DrawPointPreview(); }
         if(routerPreview is not null) { routerPreview=null; DrawRouterPreview(); }
+    }
+
+    private void PlayHaptics(int pulses)
+    {
+        if(hapticsEnabled) PlatformServices.HapticFeedback?.Invoke(pulses,hapticIntensity);
+    }
+
+    private void TrackDragHaptics(Point position)
+    {
+        if(!hapticsEnabled || !dragHaptics || PlatformServices.HapticFeedback is null)return;
+        Point cell=GridPosition(position);
+        if(touchHapticCell is Point previous && previous!=cell) PlayHaptics(1);
+        touchHapticCell=cell;
     }
 
     private void DrawTouchAnchor()

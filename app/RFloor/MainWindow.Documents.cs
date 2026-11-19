@@ -66,7 +66,7 @@ public partial class MainWindow
         NormalizeProject(document);
     }
 
-    private bool CommitDocumentSettings()
+    private bool CommitDocumentSettings(bool reportError=true)
     {
         try
         {
@@ -86,7 +86,7 @@ public partial class MainWindow
             document["name"] = string.IsNullOrWhiteSpace(ProjectName.Text) ? L("Новый план") : ProjectName.Text.Trim();
             return true;
         }
-        catch (FormatException ex) { MessageBox.Show(this, ex.Message, L("Проверьте параметры"), MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
+        catch (FormatException ex) { if(reportError) MessageBox.Show(this, ex.Message, L("Проверьте параметры"), MessageBoxButton.OK, MessageBoxImage.Warning); return false; }
     }
 
     private JsonObject ExportDocument(bool survey)

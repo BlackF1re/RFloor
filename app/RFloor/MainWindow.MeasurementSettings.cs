@@ -40,7 +40,53 @@ public partial class MainWindow
         void ZoomText()=>zoomValue.Text=L("{0:0} % за шаг", (zoom.Value-1)*100);ZoomText();zoom.ValueChanged+=(_,_)=>ZoomText();editor.Children.Add(zoomValue);
         editor.Children.Add(new TextBlock {Text=L("Линейки")});
         var rulers=new ComboBox {ItemsSource=new[]{L("Без линеек"),L("Риски на линейках"),L("Риски и проекция курсора")},SelectedIndex=rulerMode,Margin=new Thickness(0,6,0,12),Padding=new Thickness(6)};editor.Children.Add(rulers);
-        editor.Children.Add(Note(L("Колесо — вертикальная прокрутка; Shift+колесо — горизонтальная; Ctrl+колесо — масштабирование относительно курсора. Ctrl+Tab переключает документы.")));Tab(L("Редактор"),editor);
+        editor.Children.Add(Note(L("Колесо — вертикальная прокрутка; Shift+колесо — горизонтальная; Ctrl+колесо — масштабирование относительно курсора. Ctrl+Tab переключает документы.")));
+        CheckBox Option(string key,bool value)=>new() {
+            Content=new TextBlock {Text=L(key),TextWrapping=TextWrapping.Wrap},IsChecked=value
+        };
+        Slider IntervalSlider(int min,int max,int step,int value)=>new() {
+            Minimum=min,Maximum=max,TickFrequency=step,IsSnapToTickEnabled=true,Value=value
+        };
+        void Section(string key)=>editor.Children.Add(new TextBlock {
+            Text=L(key),FontSize=18,FontWeight=FontWeights.SemiBold,Margin=new Thickness(0,12,0,4)
+        });
+        void AddSlider(StackPanel panel,Slider slider,string key)
+        {
+            var label=new TextBlock {TextWrapping=TextWrapping.Wrap};
+            void Update()=>label.Text=L(key,slider.Value);
+            slider.ValueChanged+=(_,_)=>Update();
+            Update();
+            panel.Children.Add(label);
+            panel.Children.Add(slider);
+        }
+
+        Section("Автосохранение");
+        var autoSave=Option("Автоматически сохранять изменения",autoSaveEnabled);
+        var autoSaveOptions=new StackPanel {IsEnabled=autoSaveEnabled};
+        var autoSaveInterval=IntervalSlider(15,300,15,autoSaveSeconds);
+        AddSlider(autoSaveOptions,autoSaveInterval,"Интервал автосохранения · {0:0} с");
+        autoSave.IsCheckedChanged+=(_,_)=>autoSaveOptions.IsEnabled=autoSave.IsChecked==true;
+        editor.Children.Add(autoSave);
+        editor.Children.Add(autoSaveOptions);
+        editor.Children.Add(Note(L("Автосохранение работает после первого сохранения файла.")));
+
+        var haptics=Option("Включить вибрацию",hapticsEnabled);
+        var intensity=IntervalSlider(10,100,10,hapticIntensity);
+        var dragFeedback=Option("При перетаскивании по сетке",dragHaptics);
+        var startFeedback=Option("В начале замера",measurementStartHaptics);
+        var endFeedback=Option("При завершении замера",measurementEndHaptics);
+        if(OperatingSystem.IsAndroid()) {
+            Section("Тактильная отдача");
+            var feedbackOptions=new StackPanel {IsEnabled=hapticsEnabled};
+            AddSlider(feedbackOptions,intensity,"Интенсивность вибрации · {0:0} %");
+            feedbackOptions.Children.Add(dragFeedback);
+            feedbackOptions.Children.Add(startFeedback);
+            feedbackOptions.Children.Add(endFeedback);
+            haptics.IsCheckedChanged+=(_,_)=>feedbackOptions.IsEnabled=haptics.IsChecked==true;
+            editor.Children.Add(haptics);
+            editor.Children.Add(feedbackOptions);
+        }
+        Tab(L("Редактор"),editor);
         Tab(L("Измерения"),MeasurementSettingsPanel);
         var thresholds=new StackPanel();thresholds.Children.Add(new TextBlock {Text=L("Цвета результатов"),FontSize=20,FontWeight=FontWeights.SemiBold});thresholds.Children.Add(Note(L("Три значения: плохой (красный), средний (жёлтый), хороший (ярко-зелёный). Вне покрытия заливка отсутствует. Пороги и параметры измерений сохраняются в текущем документе.")));
         var thresholdFields=new List<(string Key,TextBox[] Boxes)>();
@@ -136,6 +182,14 @@ public partial class MainWindow
                 SaveLabelRule();
                 labelDefaults=pendingLabels;
                 if (language.SelectedItem is Localization.LanguagePack pack) Localization.SetLanguage(pack.Code);
+                autoSaveEnabled=autoSave.IsChecked==true;
+                autoSaveSeconds=(int)autoSaveInterval.Value;
+                UpdateAutoSaveTimer();
+                hapticsEnabled=haptics.IsChecked==true;
+                hapticIntensity=(int)intensity.Value;
+                dragHaptics=dragFeedback.IsChecked==true;
+                measurementStartHaptics=startFeedback.IsChecked==true;
+                measurementEndHaptics=endFeedback.IsChecked==true;
                 SavePreferences();UpdateShortcutHints();dirty=true;accepted=true;dialog.Complete(true);
             }catch(FormatException ex){error.Text=ex.Message;}
         };

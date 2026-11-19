@@ -75,8 +75,8 @@ internal static class PhoneChecks {
             "The object list did not open a card above the mobile drawer.");
         view.HandleBack();
         WaitUntil(()=>!rightDrawer.IsVisible);
-        var oldFeedback=PlatformServices.LongPressFeedback;
-        bool haptic=false;PlatformServices.LongPressFeedback=()=>haptic=true;
+        var oldFeedback=PlatformServices.HapticFeedback;
+        bool haptic=false;PlatformServices.HapticFeedback=(pulses,strength)=>haptic=pulses==1 && strength>0;
         try {
             var oldX=decoration["x"]!.ToString();
             using var finger=host.TouchBegin(At(104,280));
@@ -86,7 +86,7 @@ internal static class PhoneChecks {
             Require(decoration["x"]!.ToString()==oldX && Get("dragItem") is not null,"Long press did not start a preview.");
             host.TouchEnd(finger,At(134,290));Layout();
             Require(decoration["x"]!.ToString()!=oldX,"Long press movement did not commit.");
-        } finally {PlatformServices.LongPressFeedback=oldFeedback;}
+        } finally {PlatformServices.HapticFeedback=oldFeedback;}
         using(var finger=host.TouchBegin(At(75,230))){
             WaitUntil(()=>Get("touchGesture")?.ToString()=="Selection");
             host.TouchMove(finger,At(265,370));host.TouchEnd(finger,At(265,370));Layout();
@@ -109,6 +109,9 @@ internal static class PhoneChecks {
         Call("AddRoom_Click",view,new RoutedEventArgs());Layout();
         Call("SwitchMode",true);
         var wifi=PlatformServices.WifiReader;string band="2.4";
+        var feedback=new List<int>();
+        var savedHaptics=PlatformServices.HapticFeedback;
+        PlatformServices.HapticFeedback=(pulses,_)=>feedback.Add(pulses);
         PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject {["band"]=band,["bssid"]=band,["rssi"]=-50});
         try {
             foreach(string name in new[]{"RunPing","RunIperf","RunUpload"})view.FindControl<CheckBox>(name)!.IsChecked=false;
@@ -120,26 +123,35 @@ internal static class PhoneChecks {
             Use(add);
             using(var finger=host.TouchBegin(At(104,136))){
                 host.TouchMove(finger,At(147,160));
+                host.TouchMove(finger,At(147,160));
+                Require(feedback.SequenceEqual(new[]{1}),"Dragging inside the same grid cell repeated the haptic pulse.");
                 Layout();
                 Require(Get("pointPreview") is not null && document["points"]!.AsArray().Count==0,"Survey point did not preview until release.");
                 host.TouchEnd(finger,At(147,160));
             }
             WaitUntil(()=>document["points"] is JsonArray {Count: >0} points && points[0]?["readings"] is JsonArray);
+            Require(feedback.SequenceEqual(new[]{1,2,2}),"A successful survey did not pulse twice at the start and finish.");
             var point=document["points"]![0]!;
             Require(add.IsChecked==true,"Add stopped being active after measuring a point.");
             var markerParts=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>().Where(e=>ReferenceEquals(e.Tag,point)).ToArray();
             var marker=markerParts.Single(e=>e.Fill is not null);
-            Require(marker.Width==1.5 && marker.Stroke is null &&
-                markerParts.Where(e=>e.Fill is null).All(e=>e.StrokeThickness==.75 && e.Width<=7.5),
+            Require(marker.Width==2.15 && marker.Stroke is null &&
+                markerParts.Where(e=>e.Fill is null).All(e=>e.StrokeThickness==.5 && e.Width<=7.5),
                 "Survey markers should stay compact without a stroke on the center.");
             var grid=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Rectangle>().Select(r=>r.Fill).OfType<DrawingBrush>().Single();
             var tile=grid.DestinationRect.Rect;
             double centerX=Canvas.GetLeft(marker)+marker.Width/2, centerY=Canvas.GetTop(marker)+marker.Height/2;
             bool OnGrid(double value,double start,double step)=>Math.Abs((value-start-step/2)/step-Math.Round((value-start-step/2)/step))<1e-9;
             Require(OnGrid(centerX,tile.X,tile.Width) && OnGrid(centerY,tile.Y,tile.Height) && markerParts.Length==3 &&
-                markerParts.Count(e=>e.Fill is not null)==1 && markerParts.All(e=>Canvas.GetLeft(e)+e.Width/2==centerX && Canvas.GetTop(e)+e.Height/2==centerY),
+                markerParts.Count(e=>e.Fill is not null)==1 && markerParts.All(e=>Math.Abs(Canvas.GetLeft(e)+e.Width/2-centerX)<1e-9 && Math.Abs(Canvas.GetTop(e)+e.Height/2-centerY)<1e-9),
                 "The survey dot and rings did not share a centered grid crossing.");
             Tap(At(147,160));Require(Get("touchCard") is not null,"Tapping a survey point did not open its measurements.");
+            var rings=markerParts.Where(e=>e.Stroke is not null).OrderBy(e=>e.Width).ToArray();
+            var focus=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>()
+                .Single(e=>e.Stroke is not null && e.Width>rings[^1].Width);
+            Require(focus.StrokeThickness==rings[0].StrokeThickness &&
+                focus.Width-rings[1].Width==rings[1].Width-rings[0].Width,
+                "The focus ring did not preserve the spacing between measurement rings.");
             MenuItem OtherBand()=>((MenuFlyout)((Border)Get("touchCard")!).GetVisualDescendants().OfType<Button>()
                 .Single(b=>Equals(b.Content,Localization.L("Замерить на другой частоте"))).Flyout!).Items.OfType<MenuItem>()
                 .Single(i=>Equals(i.Header,Localization.L("{0} ГГц","5")));
@@ -151,10 +163,11 @@ internal static class PhoneChecks {
             var delay=view.FindControl<Slider>("MeasurementDelay")!;delay.Value=1;band="5";
             OtherBand().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             WaitUntil(()=>Get("waitingForMeasurement") is true && Get("animatedPoint") is not null);
+            Require(feedback.SequenceEqual(new[]{1,2,2}),"Measurement feedback started during the delay or after a band mismatch.");
             WaitUntil(()=>Get("waitingForMeasurement") is true && ((Control[])Get("animatedMarker")!).All(part=>part.Opacity==0));
             WaitUntil(()=>Get("waitingForMeasurement") is false && ((Control[])Get("animatedMarker")!)[1].Opacity>0);
             var animated=((Control[])Get("animatedMarker")!).Select(part=>part.Width).ToArray();
-            Require(animated.Length==3 && animated[1]-animated[0]==animated[2]-animated[1] &&
+            Require(animated.Length==3 && animated[2]-animated[1]==focus.Width-rings[1].Width &&
                 MainWindow.MeasurementMarkerOpacity(.59,false,0) is >0 and <1 &&
                 MainWindow.MeasurementMarkerOpacity(.59,false,1) is >0 and <1,
                 "The survey marker rings are uneven or their animation does not crossfade.");
@@ -180,6 +193,7 @@ internal static class PhoneChecks {
                 PlatformServices.IperfRunner=(_,_,_,_,_)=>Task.FromResult("""{"error":"test failure"}""");
                 Use(repeat);Tap(At(48,192));
                 WaitUntil(()=>wallPoint["measurementState"]?.ToString()=="partial" && Get("animatedPoint") is null);
+                Require(feedback.TakeLast(2).SequenceEqual(new[]{2,3}),"A failed survey did not end with a triple pulse.");
                 var failedParts=((Canvas)plan).Children.OfType<Avalonia.Controls.Shapes.Ellipse>()
                     .Where(e=>ReferenceEquals(e.Tag,wallPoint)).ToArray();
                 Require(failedParts.Length==3 && failedParts.All(e=>Equals(e.Fill??e.Stroke,Brushes.Firebrick)),"An enabled failed test did not turn the marker red.");
@@ -214,7 +228,7 @@ internal static class PhoneChecks {
             confirmation.GetVisualDescendants().OfType<Button>().Single(b=>!b.IsCancel).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Layout();
             Require(document["points"]!.AsArray().Count==0 && delete.IsChecked==true,"The delete tool did not remove the selected group.");
-        } finally {PlatformServices.WifiReader=wifi;}
+        } finally {PlatformServices.WifiReader=wifi;PlatformServices.HapticFeedback=savedHaptics;}
         Call("CreateNamedPlan");Layout();
         var naming=view.GetVisualDescendants().Single(v=>v.GetType().Name=="OverlayDialog");
         var actions=naming.GetVisualDescendants().OfType<Button>().ToArray();

@@ -417,6 +417,17 @@
     "Удалить точку замера?": "Delete measurement point?",
     "Удалить точки замеров?": "Delete measurement points?",
     "{0} · X {1:0.##} м, Y {2:0.##} м": "{0} · X {1:0.##} m, Y {2:0.##} m",
-    "Нажмите на точку, чтобы подтвердить удаление.": "Click a point to confirm deletion."
+    "Нажмите на точку, чтобы подтвердить удаление.": "Click a point to confirm deletion.",
+    "Автосохранение": "Autosave",
+    "Автоматически сохранять изменения": "Automatically save changes",
+    "Интервал автосохранения · {0:0} с": "Autosave interval · {0:0} s",
+    "Автосохранение работает после первого сохранения файла.": "Autosave starts after you save the file for the first time.",
+    "Не удалось выполнить автосохранение: {0}": "Autosave failed: {0}",
+    "Тактильная отдача": "Haptic feedback",
+    "Включить вибрацию": "Enable vibration",
+    "Интенсивность вибрации · {0:0} %": "Vibration intensity · {0:0}%",
+    "При перетаскивании по сетке": "When dragging across the grid",
+    "В начале замера": "When a measurement starts",
+    "При завершении замера": "When a measurement finishes"
   }
 }

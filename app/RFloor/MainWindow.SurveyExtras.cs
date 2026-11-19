@@ -66,10 +66,10 @@ public partial class MainWindow
             {
                 Plan.Children.Add(new Line { X1=Screen(p.X),Y1=Screen(p.Y),X2=Screen(end.X),Y2=Screen(end.Y),
                     Stroke=Brushes.DarkOrange,StrokeThickness=stroke,StrokeLineCap=PenLineCap.Flat,
-                    StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> { 4,4 },IsHitTestVisible=false,Tag="point-preview",ZIndex=105 });
+                    StrokeDashArray=new Avalonia.Collections.AvaloniaList<double> { 4,4 },IsHitTestVisible=false,Tag="point-preview",ZIndex=SurveyMarkerLayer-1 });
             }
             var label=new TextBlock { Text=L("{0:0.##} м", nearest),Background=Brushes.White,Foreground=Brushes.DarkOrange,
-                IsHitTestVisible=false,Tag="point-preview",ZIndex=106 };
+                IsHitTestVisible=false,Tag="point-preview",ZIndex=SurveyMarkerLayer-1 };
             label.Measure(new Size(double.PositiveInfinity,double.PositiveInfinity));
             var middle=p+d*(nearest/2);
             double x=Screen(middle.X),y=Screen(middle.Y);

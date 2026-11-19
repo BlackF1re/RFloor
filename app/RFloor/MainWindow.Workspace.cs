@@ -10,6 +10,7 @@ public partial class MainWindow
         public JsonObject Document=document;
         public string? Path=path;
         public bool Dirty;
+        public bool CanAutoSave=true;
         public bool Survey=path is not null && document["points"] is JsonArray points &&
             points.OfType<JsonObject>().SelectMany(PointReadings).Any(reading=>reading["measurements"] is JsonObject {Count:>0});
         public string? Search;
@@ -33,11 +34,13 @@ public partial class MainWindow
     {
         LoadPreferences();
         InitializeStartScreen();
+        UpdateAutoSaveTimer();
     }
     private void CaptureSession()
     {
         if(activeSession is not {} session)return;
         CommitInlineRename();
+        session.CanAutoSave=!dirty || path is null || CommitDocumentSettings(reportError:false);
         session.Document=document;session.Path=path;session.Dirty=dirty;session.Survey=surveyMode;
         session.Undo=undo.ToArray();session.Redo=redo.ToArray();
         session.Drafts=DraftNames.ToDictionary(n=>n,n=>((TextBox)FindName(n)).Text);
