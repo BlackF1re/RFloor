@@ -124,5 +124,8 @@
   "UI_MultiBandSurvey": "Для замера другого диапазона переключите Wi‑Fi в настройках устройства и повторите замер в той же точке.",
   "UI_ObjectSearch": "Поиск",
   "UI_ClearObjectSearch": "Очистить поиск",
-  "UI_PointRepeatCaption": "Замерить\nзаново"
+  "UI_PointRepeatCaption": "Замерить\nзаново",
+  "SurveyDevice": "Устройство",
+  "SurveyAdapter": "Адаптер",
+  "SurveySummary": "Сводка"
 }

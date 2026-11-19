@@ -19,6 +19,8 @@ public partial class MainWindow
         public bool Snap=true;
         public int Grid=1, Band=1, Rulers=1;
         public SurveyLayer? Layer;
+        public string? Device, Adapter;
+        public SurveySummary Summary;
         public string? AccessPoint;
         public double Zoom=1, X, Y;
         public Thickness Padding;
@@ -46,6 +48,7 @@ public partial class MainWindow
         session.Drafts=DraftNames.ToDictionary(n=>n,n=>((TextBox)FindName(n)).Text);
         foreach(var (name,check) in new[]{("RunSignal",RunSignal),("RunPing",RunPing),("RunIperf",RunIperf),("RunUpload",RunUpload)})session.Drafts[name]=check.IsChecked==true?"true":"false";
         session.Snap=SnapEnabled.IsChecked==true;session.Layer=requestedLayer;
+        session.Device=viewDevice;session.Adapter=viewAdapter;session.Summary=summary;
         session.Grid=GridPicker.SelectedIndex;session.Band=BandPicker.SelectedIndex;session.AccessPoint=SelectedAccessPoint;
         session.Zoom=PlanZoom.ScaleX;session.Padding=PlanSurface.Padding;session.X=Viewport.HorizontalOffset;session.Y=Viewport.VerticalOffset;session.Rulers=rulerMode;session.Tool=tool;
         session.Selection=Objects.SelectedItems.Cast<ObjectEntry>().Select(x=>x.Item["id"]?.ToString()??"").ToArray();
@@ -84,6 +87,7 @@ public partial class MainWindow
                     else if(FindName(name) is CheckBox check)check.IsChecked=value=="true";
                 }
                 SnapEnabled.IsChecked=session.Snap;requestedLayer=session.Layer;
+                viewDevice=session.Device;viewAdapter=session.Adapter;summary=session.Summary;
                 if(session.Drafts.Count>0)GridPicker.SelectedIndex=session.Grid;
                 BandPicker.SelectedIndex=session.Band;
             } finally {loadingSettings=false;}

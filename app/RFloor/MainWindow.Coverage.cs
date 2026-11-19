@@ -5,7 +5,7 @@ namespace RFloor;
 
 public partial class MainWindow
 {
-    private enum LayerKind { Off, Signal, Download, Upload, Ping }
+    private enum LayerKind { Off, Signal, Download, Upload, Ping, Quality, PingMinimum, PingMaximum, Loss }
     private readonly record struct SurveyLayer(LayerKind Kind,string? Target=null)
     {
         public bool Matches(SurveyLayer other) =>
@@ -25,9 +25,10 @@ public partial class MainWindow
             return t>1e-5 && t<1-1e-5 && u>=-1e-5 && u<=1+1e-5;
         }
     }
-    private sealed record CoverageTile(Rect Bounds,CoverageInterpolator Model,WriteableBitmap Bitmap);
+    private readonly record struct SourceSample(SurveySource Source,CoverageInterpolator.Sample Sample);
+    private sealed record CoverageTile(Rect Bounds,CoverageInterpolator[] Models,WriteableBitmap Bitmap);
     private sealed record CoverageTiles(
-        CoverageInterpolator.Sample[] Samples,Rect[] Rooms,WallSegment[] Walls,double Radius,
+        SourceSample[] Samples,Rect[] Rooms,WallSegment[] Walls,double Radius,SurveySummary Summary,
         (double Low,double Mid,double High) Thresholds,string Kind,List<CoverageTile> Tiles);
 
     private SurveyLayer? requestedLayer;
@@ -37,9 +38,13 @@ public partial class MainWindow
 
     private string LayerTitle(SurveyLayer layer) => layer.Kind switch {
         LayerKind.Signal=>L("Сигнал"),
+        LayerKind.Quality=>L("Качество сигнала"),
         LayerKind.Download=>L("iperf3 · скачивание"),
         LayerKind.Upload=>L("iperf3 · отправка"),
         LayerKind.Ping=>L("Ping · {0}",layer.Target),
+        LayerKind.PingMinimum=>L("Ping · минимум · {0}",layer.Target),
+        LayerKind.PingMaximum=>L("Ping · максимум · {0}",layer.Target),
+        LayerKind.Loss=>L("Потери пакетов · {0}",layer.Target),
         _=>L("Слои выключены")
     };
 
@@ -65,6 +70,8 @@ public partial class MainWindow
         switch(layer.Kind) {
             case LayerKind.Signal:
                 if(Numeric(measurements["rssi"],out var rssi)) return (rssi,"rssi");
+                break;
+            case LayerKind.Quality:
                 if(Numeric(measurements["quality"],out var quality)) return (quality,"quality");
                 break;
             case LayerKind.Download:
@@ -74,35 +81,49 @@ public partial class MainWindow
                 if(Numeric(measurements["uploadMbps"],out var upload)) return (upload,"upload");
                 break;
             case LayerKind.Ping:
+            case LayerKind.PingMinimum:
+            case LayerKind.PingMaximum:
+            case LayerKind.Loss:
+                string field=layer.Kind switch {LayerKind.PingMinimum=>"min",LayerKind.PingMaximum=>"max",LayerKind.Loss=>"loss",_=>"avg"};
                 foreach(var ping in Pings(measurements))
                     if(string.Equals(ping["target"]?.ToString().Trim(),layer.Target,StringComparison.OrdinalIgnoreCase) &&
-                       Numeric(ping["avg"],out var latency)) return (latency,"ping");
+                       Numeric(ping[field],out var latency)) return (latency,field=="loss"?"loss":"ping");
                 break;
         }
         return null;
     }
 
-    private string? activeCoverageKind;
-
     private (double Value,string Kind)? Sample(JsonObject point)
     {
-        var sample=LayerSample(MapReading(point)?["measurements"] as JsonObject,
-            activeLayer.Kind==LayerKind.Off ? new(LayerKind.Signal) : activeLayer);
-        return sample is { } value && (activeCoverageKind is null || value.Kind==activeCoverageKind ||
-            NoCoverage(value.Value,value.Kind)) ? sample : null;
+        var samples=PointSourceSamples(ViewReadings(point),activeLayer.Kind==LayerKind.Off?new(LayerKind.Signal):activeLayer).ToArray();
+        var total=new CoverageSummary();
+        foreach(var sample in samples)
+            if(!NoCoverage(sample.Sample.Value,sample.Sample.Kind)) total.Add(sample.Sample.Value,1,summary);
+        if(total.Count>0) return (total.Value(summary),samples[0].Sample.Kind);
+        return samples.Length>0?samples[0].Sample:null;
     }
+
+    private static IEnumerable<(SurveySource Source,(double Value,string Kind) Sample)> PointSourceSamples(
+        IEnumerable<JsonObject> readings,SurveyLayer layer) =>
+        readings.Select(r=>(Reading:r,Sample:LayerSample(r["measurements"] as JsonObject,layer)))
+            .Where(r=>r.Sample.HasValue).GroupBy(r=>ReadingSource(r.Reading))
+            .Select(group=>{
+                var latest=group.OrderBy(r=>r.Reading["timestamp"]?.ToString(),StringComparer.Ordinal).Last().Sample!.Value;
+                return (group.Key,latest);
+            });
 
     private void UpdateLayers(IReadOnlyList<JsonObject> readings)
     {
         var layers=new List<SurveyLayer>();
-        foreach(var kind in new[]{LayerKind.Signal,LayerKind.Download,LayerKind.Upload}) {
+        foreach(var kind in new[]{LayerKind.Signal,LayerKind.Quality,LayerKind.Download,LayerKind.Upload}) {
             var layer=new SurveyLayer(kind);
             if(readings.Any(m=>LayerSample(m,layer) is not null)) layers.Add(layer);
         }
-        var targets=readings.SelectMany(Pings).Where(p=>Numeric(p["avg"],out _))
+        var targets=readings.SelectMany(Pings)
             .Select(p=>p["target"]?.ToString().Trim()).OfType<string>().Where(t=>t.Length>0)
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(t=>t,StringComparer.OrdinalIgnoreCase);
-        layers.AddRange(targets.Select(t=>new SurveyLayer(LayerKind.Ping,t)));
+        foreach(var kind in new[]{LayerKind.Ping,LayerKind.PingMinimum,LayerKind.PingMaximum,LayerKind.Loss})
+            layers.AddRange(targets.Select(t=>new SurveyLayer(kind,t)).Where(layer=>readings.Any(m=>LayerSample(m,layer) is not null)));
         layers.Add(new(LayerKind.Off));
 
         var chosen=requestedLayer is {} requested
@@ -141,7 +162,7 @@ public partial class MainWindow
         CoverageColor(value,alpha,LayerThresholds(kind),kind is "ping" or "loss");
 
     private static string CoverageUnit(string kind) => kind switch {
-        "rssi"=>"dBm", "quality"=>"%", "ping"=>L("мс"), _=>L("Мбит/с")
+        "rssi"=>"dBm", "quality" or "loss"=>"%", "ping"=>L("мс"), _=>L("Мбит/с")
     };
 
     private static Color CoverageColor(double value,byte alpha,(double Low,double Mid,double High) thresholds,bool reversed)
@@ -159,37 +180,35 @@ public partial class MainWindow
     private void RenderHeatmap()
     {
         var readings=Points.OfType<JsonObject>()
-            .Select(p=>(Position:new Point(Number(p["x"]),Number(p["y"])), Measurements:MapReading(p)?["measurements"]))
-            .Where(p=>p.Measurements is JsonObject).ToArray();
-        UpdateLayers(readings.Select(p=>(JsonObject)p.Measurements!).ToArray());
-        activeCoverageKind=null;
+            .Select(p=>(Position:new Point(Number(p["x"]),Number(p["y"])), Readings:ViewReadings(p).ToArray())).ToArray();
+        UpdateLayers(readings.SelectMany(p=>p.Readings).Select(r=>r["measurements"]).OfType<JsonObject>().ToArray());
         if(activeLayer.Kind==LayerKind.Off) {
             HeatLegend.Text=availableLayers.Count>1 ? L("Тепловая карта скрыта") : "";
             return;
         }
 
-        var measured=readings.Select(p=>(p.Position,Sample:LayerSample((JsonObject)p.Measurements!,activeLayer)))
-            .Where(p=>p.Sample.HasValue).Select(p=>(p.Position,p.Sample!.Value.Value,p.Sample.Value.Kind)).ToArray();
-        var covered=measured.Where(p=>!NoCoverage(p.Value,p.Kind)).ToArray();
-        string kind=covered.FirstOrDefault(p=>p.Kind=="rssi").Kind ?? covered.FirstOrDefault().Kind ?? measured[0].Kind;
-        activeCoverageKind=kind;
-        var samples=measured.Where(p=>p.Kind==kind || NoCoverage(p.Value,p.Kind)).Select(p=>
-            new CoverageInterpolator.Sample(p.Position,NoCoverage(p.Value,p.Kind)?null:p.Value)).ToArray();
+        var measured=readings.SelectMany(p=>PointSourceSamples(p.Readings,activeLayer)
+            .Select(s=>(p.Position,s.Sample.Kind,s.Sample.Value,s.Source))).ToArray();
+        string kind=measured[0].Kind;
+        var samples=measured.Select(p=>new SourceSample(p.Source,
+            new CoverageInterpolator.Sample(p.Position,NoCoverage(p.Value,p.Kind)?null:p.Value))).ToArray();
         var thresholds=LayerThresholds(kind);
         HeatLegend.Text=L("Красный: {0:0.#} · жёлтый: {1:0.#} · зелёный: {2:0.#} {3}\nТочек: {4}. Локальная оценка между замерами (минимум 3, не на одной прямой), радиус опоры {5:0.##} м. Прозрачный — нет покрытия или недостаточно данных.",
-            thresholds.Low,thresholds.Mid,thresholds.High,CoverageUnit(kind),samples.Length,CoverageRadius);
+            thresholds.Low,thresholds.Mid,thresholds.High,CoverageUnit(kind),samples.Select(s=>s.Sample.Position).Distinct().Count(),CoverageRadius);
+        if(SummaryView) HeatLegend.Text+=Environment.NewLine+L("Сводка · {0} · источников замеров: {1}",
+            SummaryLabel(summary),samples.Select(s=>s.Source).Distinct().Count());
 
         var rooms=Rooms.OfType<JsonObject>().Select(r=>new Rect(Number(r["x"]),Number(r["y"]),Number(r["w"]),Number(r["h"]))).ToArray();
         var walls=Walls.OfType<JsonObject>().Select(w=>new WallSegment(End(w,"a"),End(w,"b"))).ToArray();
         double radius=CoverageRadius;
-        if(coverageTiles is not {} cache || cache.Radius!=radius || cache.Thresholds!=thresholds || cache.Kind!=kind ||
+        if(coverageTiles is not {} cache || cache.Radius!=radius || cache.Thresholds!=thresholds || cache.Kind!=kind || cache.Summary!=summary ||
            !cache.Samples.SequenceEqual(samples) || !cache.Rooms.SequenceEqual(rooms) || !cache.Walls.SequenceEqual(walls)) {
             if(coverageTiles is {} old)
                 foreach(var tile in old.Tiles) tile.Bitmap.Dispose();
-            cache=new(samples,rooms,walls,radius,thresholds,kind,[]);
-            if(samples.Count(p=>p.Value.HasValue)>=3) {
+            cache=new(samples,rooms,walls,radius,summary,thresholds,kind,[]);
+            if(samples.Count(p=>p.Sample.Value.HasValue)>=3) {
                 foreach(var room in rooms) {
-                    var tile=BuildCoverageTile(room,samples,walls,radius,thresholds,kind=="ping");
+                    var tile=BuildCoverageTile(room,samples,walls,radius,thresholds,kind is "ping" or "loss",summary);
                     if(tile is {} result) cache.Tiles.Add(result);
                 }
             }
@@ -203,27 +222,29 @@ public partial class MainWindow
         }
     }
 
-    private static CoverageTile? BuildCoverageTile(Rect room,CoverageInterpolator.Sample[] samples,
-        WallSegment[] walls,double radius,(double Low,double Mid,double High) thresholds,bool reversed)
+    private static CoverageTile? BuildCoverageTile(Rect room,SourceSample[] samples,
+        WallSegment[] walls,double radius,(double Low,double Mid,double High) thresholds,bool reversed,SurveySummary summary)
     {
-        var local=samples.Where(p=>p.Position.X>=room.Left-WallFaceTolerance && p.Position.X<=room.Right+WallFaceTolerance &&
-            p.Position.Y>=room.Top-WallFaceTolerance && p.Position.Y<=room.Bottom+WallFaceTolerance).ToArray();
-        if(local.Count(p=>p.Value.HasValue)<3 || room.Width<=0 || room.Height<=0) return null;
+        var groups=samples.Where(s=>s.Sample.Position.X>=room.Left-WallFaceTolerance && s.Sample.Position.X<=room.Right+WallFaceTolerance &&
+            s.Sample.Position.Y>=room.Top-WallFaceTolerance && s.Sample.Position.Y<=room.Bottom+WallFaceTolerance)
+            .GroupBy(s=>s.Source,s=>s.Sample).Where(g=>g.Count(p=>p.Value.HasValue)>=3).ToArray();
+        if(groups.Length==0 || room.Width<=0 || room.Height<=0) return null;
+        var local=groups.SelectMany(g=>g).ToArray();
         var support=new Rect(new Point(local.Min(p=>p.Position.X),local.Min(p=>p.Position.Y)),
             new Point(local.Max(p=>p.Position.X),local.Max(p=>p.Position.Y)));
         var bounds=room.Intersect(support.Inflate(.02));
         if(bounds.Width<=0 || bounds.Height<=0) return null;
-        double density=Math.Min(112,Math.Min(2048/Math.Max(bounds.Width,bounds.Height),Math.Sqrt(640000/(bounds.Width*bounds.Height))));
+        double density=Math.Min(112,Math.Min(2048/Math.Max(bounds.Width,bounds.Height),Math.Sqrt(250000/(bounds.Width*bounds.Height))));
         int width=(int)Math.Ceiling(bounds.Width*density), height=(int)Math.Ceiling(bounds.Height*density);
-        var model=new CoverageInterpolator(local,Blocked,radius);
-        var pixels=model.Rasterize(bounds,width,height,(value,alpha)=>CoverageColor(value,alpha,thresholds,reversed));
+        var models=groups.Select(group=>new CoverageInterpolator(group,Blocked,radius)).ToArray();
+        var pixels=CoverageInterpolator.Rasterize(models,summary,bounds,width,height,(value,alpha)=>CoverageColor(value,alpha,thresholds,reversed));
         if(pixels is null) return null;
         var bitmap=new WriteableBitmap(new PixelSize(width,height),new Vector(96,96),PixelFormat.Bgra8888,AlphaFormat.Premul);
         using(var frame=bitmap.Lock()) {
             for(int y=0;y<height;y++)
                 Marshal.Copy(pixels,y*width*4,IntPtr.Add(frame.Address,y*frame.RowBytes),width*4);
         }
-        return new(bounds,model,bitmap);
+        return new(bounds,models,bitmap);
 
         bool Blocked(Point a,Point b)
         {
@@ -250,18 +271,21 @@ public partial class MainWindow
 
         var position=World(local,false);
         // The map paints later rooms over earlier rooms where their areas overlap.
-        (double Value,double Confidence)? estimate=null;
-        for(int i=cache.Tiles.Count-1;i>=0 && estimate is null;i--) {
+        var total=new CoverageSummary();
+        for(int i=cache.Tiles.Count-1;i>=0 && total.Count==0;i--) {
             var tile=cache.Tiles[i];
-            if(tile.Bounds.Contains(position)) estimate=tile.Model.Estimate(position);
+            if(!tile.Bounds.Contains(position)) continue;
+            foreach(var model in tile.Models)
+                if(model.Estimate(position) is {} estimate) total.Add(estimate.Value,estimate.Confidence,cache.Summary);
         }
-        if(estimate is not {} sample || WallFaces().Any(wall=>InsideWall(position,wall))) {
+        if(total.Count==0 || WallFaces().Any(wall=>InsideWall(position,wall))) {
             CoverageHoverBadge.IsVisible=false;
             return;
         }
 
-        CoverageHoverText.Text=$"{sample.Value:0.#} {CoverageUnit(cache.Kind)}";
-        coverageHoverColor.Color=CoverageColor(sample.Value,255,cache.Thresholds,cache.Kind=="ping");
+        double value=total.Value(cache.Summary);
+        CoverageHoverText.Text=$"{value:0.#} {CoverageUnit(cache.Kind)}"+(SummaryView?L(" · Источников: {0}",total.Count):"");
+        coverageHoverColor.Color=CoverageColor(value,255,cache.Thresholds,cache.Kind is "ping" or "loss");
         CoverageHoverMarker.Fill=coverageHoverColor;
         CoverageHoverBadge.IsVisible=true;
         CoverageHoverBadge.Measure(Size.Infinity);

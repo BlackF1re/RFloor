@@ -129,6 +129,9 @@ internal static class PhoneChecks {
                 Require(Get("pointPreview") is not null && document["points"]!.AsArray().Count==0,"Survey point did not preview until release.");
                 host.TouchEnd(finger,At(147,160));
             }
+            WaitUntil(()=>view.GetVisualDescendants().OfType<Button>().Any(b=>b.IsDefault && Equals(b.Content,Localization.L("Подтвердить"))));
+            var confirmDevice=view.GetVisualDescendants().OfType<Button>().Single(b=>b.IsDefault && Equals(b.Content,Localization.L("Подтвердить")));
+            confirmDevice.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             WaitUntil(()=>document["points"] is JsonArray {Count: >0} points && points[0]?["readings"] is JsonArray);
             Require(feedback.SequenceEqual(new[]{1,2,2}),"A successful survey did not pulse twice at the start and finish.");
             var point=document["points"]![0]!;

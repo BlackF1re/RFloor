@@ -10,11 +10,7 @@ public partial class MainWindow
         return point["measurements"] is JsonObject ? [point] : [];
     }
 
-    private JsonObject? MapReading(JsonObject point) => MapReadingFor(point,Band,SelectedAccessPoint);
-
-    private static JsonObject? MapReadingFor(JsonObject point,string band,string? accessPoint) =>
-        PointReadings(point).LastOrDefault(r=>r["band"]?.ToString()==band &&
-            string.Equals(AccessPointId(r),accessPoint,StringComparison.OrdinalIgnoreCase));
+    private JsonObject? MapReading(JsonObject point) => ViewReadings(point).LastOrDefault();
 
     private static bool ReadingHasFailures(JsonObject? reading)
     {
@@ -27,16 +23,19 @@ public partial class MainWindow
             targets.Any(target=>measurements is null || LayerSample(measurements,new(LayerKind.Ping,target?.ToString())) is null);
     }
 
-    private bool PointHasFailure(JsonObject point,JsonObject? reading)
+    private bool PointHasFailure(JsonObject point)
     {
-        if(ReadingHasFailures(reading)) return true;
+        if(ViewReadings(point).Any(ReadingHasFailures)) return true;
         if(point["measurementState"]?.ToString() is not ("failed" or "mixed" or "unverified" or "cancelled")) return false;
         if(point["attemptBand"] is not {} attempt) return !PointReadings(point).Any();
-        return attempt.ToString()==Band && (point["attemptAccessPoint"] is null ||
+        return attempt.ToString()==Band && (SummaryView ||
+            DeviceKey(new(point["attemptDeviceId"]?.ToString(),null))==viewDevice &&
+            (point["attemptAdapterId"]?.ToString()??"")==viewAdapter) && (point["attemptAccessPoint"] is null || SummaryView ||
             string.Equals(point["attemptAccessPoint"]?.ToString(),SelectedAccessPoint,StringComparison.OrdinalIgnoreCase));
     }
 
-    private static void SavePointReading(JsonObject point, JsonObject result, JsonObject requested, string band, string? accessPoint)
+    private static JsonObject SavePointReading(JsonObject point, JsonObject result, JsonObject requested, string band, string? accessPoint,
+        SurveySource source)
     {
         if(point["readings"] is not JsonArray readings)
         {
@@ -52,14 +51,16 @@ public partial class MainWindow
         }
         var next = new JsonObject {
             ["band"]=band, ["accessPoint"]=accessPoint, ["measurements"]=result,
+            ["deviceId"]=source.Device, ["adapterId"]=source.Adapter,
             ["requested"]=requested, ["timestamp"]=DateTime.UtcNow.ToString("O")
         };
-        var existing = readings.OfType<JsonObject>().FirstOrDefault(r=>r["band"]?.ToString()==band &&
+        var existing = readings.OfType<JsonObject>().FirstOrDefault(r=>ReadingSource(r)==source && r["band"]?.ToString()==band &&
             string.Equals(AccessPointId(r),AccessPointId(next),StringComparison.OrdinalIgnoreCase));
         if(existing is not null) readings[readings.IndexOf(existing)]=next;
         else readings.Add(next);
 
         foreach(var key in new[] {"band","accessPoint","measurements","requested","timestamp"})
             point[key]=next[key]?.DeepClone();
+        return next;
     }
 }

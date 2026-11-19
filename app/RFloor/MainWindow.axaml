@@ -41,8 +41,11 @@
     <c:TextBlock Text="{DynamicResource UI_41}" FontSize="20" FontWeight="SemiBold" /><c:TextBlock Text="{DynamicResource UI_42}" Foreground="#707070" TextWrapping="Wrap" Margin="0,5,0,20" />
     <c:TextBlock Text="{DynamicResource UI_43}" TextWrapping="Wrap" Foreground="#707070" Margin="0,0,0,16" />
     <c:TextBlock Text="{DynamicResource UI_MultiBandSurvey}" TextWrapping="Wrap" Foreground="#707070" Margin="0,0,0,16" />
+    <c:TextBlock Text="{DynamicResource SurveyDevice}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="DevicePicker" SelectionChanged="SurveySources_Changed" Margin="0,7,0,16" Padding="8" />
+    <StackPanel x:Name="AdapterOptions"><c:TextBlock Text="{DynamicResource SurveyAdapter}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="AdapterPicker" SelectionChanged="SurveySources_Changed" Margin="0,7,0,16" Padding="8" /></StackPanel>
     <c:TextBlock Text="{DynamicResource UI_44}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="BandPicker" SelectedIndex="1" SelectionChanged="SurveyView_Changed" Margin="0,7,0,16" Padding="8"><ComboBoxItem Content="{DynamicResource UI_45}" Tag="2.4" /><ComboBoxItem Content="{DynamicResource UI_46}" Tag="5" /><ComboBoxItem Content="{DynamicResource UI_47}" Tag="6" /></ComboBox>
-    <c:TextBlock Text="{DynamicResource UI_48}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="AccessPointPicker" SelectionChanged="AccessPoint_Changed" Margin="0,7,0,16" Padding="8" />
+    <StackPanel x:Name="SummaryOptions"><c:TextBlock Text="{DynamicResource SurveySummary}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="SummaryPicker" SelectionChanged="SurveySources_Changed" Margin="0,7,0,16" Padding="8" /></StackPanel>
+    <StackPanel x:Name="AccessPointOptions"><c:TextBlock Text="{DynamicResource UI_48}" FontSize="10" FontWeight="Bold" Foreground="#707070" /><ComboBox x:Name="AccessPointPicker" SelectionChanged="AccessPoint_Changed" Margin="0,7,0,16" Padding="8" /></StackPanel>
     <SplitButton x:Name="LayerPicker" Click="NextLayer_Click" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" MinHeight="44" Margin="0,0,0,10">
      <TextBlock x:Name="LayerLabel" TextTrimming="CharacterEllipsis" />
      <SplitButton.Flyout><MenuFlyout /></SplitButton.Flyout>

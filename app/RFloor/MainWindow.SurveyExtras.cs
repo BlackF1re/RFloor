@@ -6,23 +6,16 @@ public partial class MainWindow
 {
     private readonly DispatcherTimer networkTimer = new() { Interval = TimeSpan.FromSeconds(5) };
     private bool networkBusy;
-    private string? SelectedAccessPoint => (AccessPointPicker.SelectedItem as ComboBoxItem)?.Tag as string;
+    private string? SelectedAccessPoint => SummaryView?null:(AccessPointPicker.SelectedItem as ComboBoxItem)?.Tag as string;
     private static string? AccessPointId(JsonObject point) =>
         (point["measurements"] as JsonObject)?["bssid"]?.ToString() ?? point["accessPoint"]?.ToString();
     private void UpdateAccessPoints()
     {
         string? previous = SelectedAccessPoint;
-        var ids = Points.OfType<JsonObject>().SelectMany(PointReadings).Where(p => p["band"]?.ToString() == Band)
-            .Select(AccessPointId).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var existing=AccessPointPicker.Items.OfType<ComboBoxItem>().Select(i=>i.Tag as string);
-        if(existing.SequenceEqual(ids.Count==0?[null]:ids,StringComparer.OrdinalIgnoreCase)) {
-            if(ids.Count==0 && AccessPointPicker.Items[0] is ComboBoxItem placeholder) placeholder.Content=L("Нет данных");
-            return;
-        }
-        AccessPointPicker.Items.Clear();
-        if (ids.Count == 0) AccessPointPicker.Items.Add(new ComboBoxItem { Content = L("Нет данных"), Tag = null });
-        else foreach (var id in ids) AccessPointPicker.Items.Add(new ComboBoxItem { Content = id, Tag = id });
-        AccessPointPicker.SelectedItem = AccessPointPicker.Items.Cast<ComboBoxItem>().FirstOrDefault(i => string.Equals(i.Tag as string, previous, StringComparison.OrdinalIgnoreCase)) ?? AccessPointPicker.Items[0];
+        var ids=Points.OfType<JsonObject>().SelectMany(PointReadings).Where(p=>p["band"]?.ToString()==Band && InSourceView(p))
+            .Select(AccessPointId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        UpdatePicker(AccessPointPicker,ids.Length==0?[(null,L("Нет данных"))]:
+            ids.Select(id=>(id,id??L("Точка доступа не указана"))),previous);
     }
     private void AccessPoint_Changed(object sender, SelectionChangedEventArgs e) { if (IsInitialized && !updating) RenderPlan(); }
     private void StartNetworkStatus()

@@ -41,8 +41,9 @@ public partial class MainWindow
                     local=uri.LocalPath;
                 if(local is null && file is null)continue;
                 var source=active?document:session.Document;
-                var snapshot=source.DeepClone();
-                try { await WriteProjectFileAsync(local,file,SerializeProject(snapshot)); }
+                var snapshot=source.DeepClone().AsObject();
+                var modifiedAt=SaveTimestamp(snapshot,true);
+                try { await WriteProjectFileAsync(local,file,SerializeProject(snapshot,modifiedAt)); }
                 catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidOperationException) {
                     Status.Text=L("Не удалось выполнить автосохранение: {0}",ex.Message);
                     continue;
@@ -50,19 +51,32 @@ public partial class MainWindow
                 if(!sessions.Contains(session))continue;
                 if(session==activeSession) {
                     if(path==target && ReferenceEquals(document,source) && CanAutoSaveProjects &&
-                        inlineNameEditor is null && CommitDocumentSettings(reportError:false) && JsonNode.DeepEquals(source,snapshot))
-                        dirty=false;
+                        inlineNameEditor is null)
+                        FinishSave(source,snapshot,modifiedAt);
                 } else if(session.Path==target && ReferenceEquals(session.Document,source) &&
                     session.CanAutoSave && JsonNode.DeepEquals(source,snapshot)) {
                     session.Dirty=false;
+                    source["modifiedAt"]=modifiedAt;
                 }
                 RefreshTabHeaders();
             }
         } finally { saveGate.Release(); }
     }
 
-    private static string SerializeProject(JsonNode value) =>
-        value.ToJsonString(new JsonSerializerOptions {WriteIndented=true})+Environment.NewLine;
+    private static string SaveTimestamp(JsonObject project,bool changed) =>
+        !changed && project["modifiedAt"] is {} saved?saved.ToString():DateTime.UtcNow.ToString("O");
+
+    private static string SerializeProject(JsonObject project,string modifiedAt)
+    {
+        var header=new[]{"format","schema","createdAt","modifiedAt","name","devices","settings"};
+        var ordered=new JsonObject();
+        foreach(var key in header)
+            if(key=="modifiedAt") ordered[key]=modifiedAt;
+            else if(project.ContainsKey(key)) ordered[key]=project[key]?.DeepClone();
+        foreach(var field in project)
+            if(!ordered.ContainsKey(field.Key)) ordered[field.Key]=field.Value?.DeepClone();
+        return ordered.ToJsonString(new JsonSerializerOptions {WriteIndented=true})+Environment.NewLine;
+    }
 
     private static async Task WriteProjectFileAsync(string? local,IStorageFile? file,string json)
     {

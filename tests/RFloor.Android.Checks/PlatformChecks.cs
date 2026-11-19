@@ -41,6 +41,8 @@ internal static class PlatformChecks {
         Require(result["error"] is null && result["uploadMbps"]?.GetValue<double>() is >0 && result["downloadMbps"]?.GetValue<double>() is >0,"Android native iperf3 failed: "+result);
         Require(result["pings"]![0]!["received"]!.GetValue<int>()==2,"Android ICMP failed: "+result);
         Require(result["frequencyMHz"]?.GetValue<int>() is >0 && result["rssi"]?.GetValue<int>() is >=-120 and <=0 && !string.IsNullOrWhiteSpace(result["ssid"]?.ToString()),"Android Wi-Fi details were unavailable: "+result);
+        Require(!string.IsNullOrWhiteSpace(result["adapterId"]?.ToString()) && result["adapterVerified"]?.GetValue<bool>()==false,
+            "Android did not report its Wi-Fi interface as a logical adapter.");
         var failure=JsonNode.Parse(await NativeIperf.Run("127.0.0.1",59999,1,false,CancellationToken.None));
         Require(failure?["error"] is not null,"Connection refusal was not reported.");
         using var cancellation=new CancellationTokenSource(250);

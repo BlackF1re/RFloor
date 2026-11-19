@@ -76,7 +76,7 @@ public partial class MainWindow
             if(ReferenceEquals(animatedPoint,obj))return;
             var position=new Point(Number(obj["x"])+delta.X,Number(obj["y"])+delta.Y);
             bool selected=tag is HighlightTag;
-            Plan.Children.Add(CreatePointMarker(position, selected && PointHasFailure(obj,MapReading(obj))?Brushes.Firebrick:tint, tag,
+            Plan.Children.Add(CreatePointMarker(position, selected && PointHasFailure(obj)?Brushes.Firebrick:tint, tag,
                 selected || tag is SearchHighlightTag?SurveyFocusSize:SurveyMarkerSize, selected?1:opacity));
             return;
         }

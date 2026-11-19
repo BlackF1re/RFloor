@@ -33,8 +33,9 @@ public partial class MainWindow : SurfaceWindow
     {
         ["format"] = "rfloor.plan", ["schema"] = 1,
         ["createdAt"] = DateTime.UtcNow.ToString("O"), ["name"] = L("Новый план"),
+        ["devices"] = new JsonObject(), ["settings"] = DefaultSurveySettings(),
         ["geometry"] = new JsonObject { ["rooms"] = new JsonArray(), ["walls"] = new JsonArray(), ["doors"] = new JsonArray() },
-        ["settings"] = DefaultSurveySettings(), ["points"] = new JsonArray()
+        ["points"] = new JsonArray()
     };
     private static double Number(JsonNode? node) => Numeric(node, out double value) ? value : throw new FormatException(L("Отсутствуют координаты объекта."));
     private static string Id() => Guid.NewGuid().ToString();
@@ -161,7 +162,10 @@ public partial class MainWindow : SurfaceWindow
                 file=await storage.SaveFilePickerAsync(new FilePickerSaveOptions {Title=L("Сохранить"),SuggestedFileName=SafePlanName(),DefaultExtension="rfplan",FileTypeChoices=[PlanFileType],ShowOverwritePrompt=true});
             local??=file?.TryGetLocalPath();
             if(file is null && local is null)return false;
-            string json=SerializeProject(document);
+            var source=document;
+            var snapshot=source.DeepClone().AsObject();
+            var modifiedAt=SaveTimestamp(snapshot,dirty);
+            string json=SerializeProject(snapshot,modifiedAt);
             if(local is not null)
             {
                 var destination=NamedPlanPath(local,SafePlanName());
@@ -172,11 +176,18 @@ public partial class MainWindow : SurfaceWindow
                 await WriteProjectFileAsync(destination,null,json);
                 path=original && file is not null?file.Path.ToString():new Uri(destination).AbsoluteUri;
                 if(original && file is not null)storageFiles[path]=file;
-                dirty=false;RefreshTabHeaders();Status.Text=L("Сохранено: {0}",System.IO.Path.GetFileName(destination));return true;
+                FinishSave(source,snapshot,modifiedAt);RefreshTabHeaders();Status.Text=L("Сохранено: {0}",System.IO.Path.GetFileName(destination));return true;
             }
             await WriteProjectFileAsync(null,file,json);
-            path=file!.Path.ToString();storageFiles[path]=file;dirty=false;RefreshTabHeaders();Status.Text=L("Сохранено: {0}",file.Name);return true;
+            path=file!.Path.ToString();storageFiles[path]=file;FinishSave(source,snapshot,modifiedAt);RefreshTabHeaders();Status.Text=L("Сохранено: {0}",file.Name);return true;
         }catch(Exception ex) when(ex is IOException or UnauthorizedAccessException or InvalidOperationException){MessageBox.Show(this,ex.Message,L("Не удалось сохранить"));return false;}
+    }
+    private void FinishSave(JsonObject source,JsonObject snapshot,string modifiedAt)
+    {
+        if(!ReferenceEquals(source,document)) return;
+        bool unchanged=CommitDocumentSettings(reportError:false) && JsonNode.DeepEquals(source,snapshot);
+        source["modifiedAt"]=modifiedAt;
+        if(unchanged) dirty=false;
     }
     internal static string NamedPlanPath(string local,string fallback)
     {
@@ -236,6 +247,7 @@ public partial class MainWindow : SurfaceWindow
             if (!surveyMode) Objects.Items.Add(new ObjectEntry(L("Комната · {0}", name), room, "room"));
         }
         if (surveyMode) {
+            UpdateSurveySources();
             UpdateAccessPoints();
             RenderHeatmap();
             if (showGrid) Plan.Children.Add(new Rectangle {Width=Plan.Width,Height=Plan.Height,Fill=grid,IsHitTestVisible=false});

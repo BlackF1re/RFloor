@@ -14,7 +14,7 @@ public class MainActivity : AvaloniaMainActivity {
     #pragma warning disable CS0672, CS0618
     public override async void OnBackPressed(){if(Avalonia.Application.Current is RFloor.App app && app.View is {} view){if(view.HandleBack())return;if(!await view.RequestClose())return;}base.OnBackPressed();}
     #pragma warning restore CS0672, CS0618
-    protected override void OnCreate(Bundle? state){PlatformServices.HapticFeedback=Vibrate;PlatformServices.WifiReader=ReadWifi;PlatformServices.IperfRunner=NativeIperf.Run; base.OnCreate(state);
+    protected override void OnCreate(Bundle? state){PlatformServices.DeviceModel=Build.Model;PlatformServices.HapticFeedback=Vibrate;PlatformServices.WifiReader=ReadWifi;PlatformServices.IperfRunner=NativeIperf.Run; base.OnCreate(state);
 #if RFLOOR_PLATFORM_CHECKS
         if(Intent?.GetBooleanExtra("rfloor_platform_checks",false)==true)_=PlatformChecks.Run(this);
 #endif
@@ -51,6 +51,22 @@ public class MainActivity : AvaloniaMainActivity {
         if(string.IsNullOrEmpty(bssid)||bssid=="02:00:00:00:00:00"||ssid=="<unknown ssid>")throw new InvalidOperationException(PlatformServices.Text("Включите местоположение в настройках Android для определения SSID и BSSID."));
         int frequency=info.Frequency,rssi=info.Rssi;
         if(frequency<=0 || rssi is <-120 or >0)throw new InvalidOperationException(PlatformServices.Text("Сигнал Wi-Fi недоступен"));
-        return Task.FromResult(new JsonObject {["ssid"]=ssid,["bssid"]=bssid,["frequencyMHz"]=frequency,["band"]=frequency<3000?"2.4":frequency<5925?"5":"6",["rssi"]=rssi,["quality"]=Math.Clamp((rssi+100)*2,0,100),["coverage"]=true});
+        var connectivity=(ConnectivityManager?)GetSystemService(ConnectivityService);
+        var network=connectivity?.ActiveNetwork;
+        var capabilities=network is not null?connectivity?.GetNetworkCapabilities(network):null;
+        bool usesWifi=capabilities?.HasTransport(TransportType.Wifi)==true;
+        string? wifiInterface=usesWifi && network is not null?connectivity?.GetLinkProperties(network)?.InterfaceName:null;
+        if(wifiInterface is null && connectivity is not null) {
+            #pragma warning disable CA1422
+            var wifiInterfaces=connectivity.GetAllNetworks()
+                .Where(candidate=>connectivity.GetNetworkCapabilities(candidate)?.HasTransport(TransportType.Wifi)==true)
+                .Select(candidate=>connectivity.GetLinkProperties(candidate)?.InterfaceName)
+                .OfType<string>().Distinct().ToArray();
+            #pragma warning restore CA1422
+            if(wifiInterfaces.Length==1) wifiInterface=wifiInterfaces[0];
+        }
+        return Task.FromResult(new JsonObject {["ssid"]=ssid,["bssid"]=bssid,["frequencyMHz"]=frequency,["band"]=frequency<3000?"2.4":frequency<5925?"5":"6",["rssi"]=rssi,["quality"]=Math.Clamp((rssi+100)*2,0,100),["coverage"]=true,
+            ["adapterId"]=wifiInterface is null?"android-wifi":"interface:"+wifiInterface,["adapterName"]=wifiInterface??"Wi-Fi",["adapterVerified"]=false,
+            ["routeInterface"]=wifiInterface,["nonWifiRoute"]=capabilities is not null && (!usesWifi || capabilities.HasTransport(TransportType.Vpn))});
     }
 }

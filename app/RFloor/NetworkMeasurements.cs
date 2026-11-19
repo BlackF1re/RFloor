@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.Globalization;
+using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -62,7 +64,7 @@ internal static class NetworkMeasurements
         var readings = new List<JsonObject>();
         bool changed = false;
         string? wifiError = null;
-        (string? Bssid,string? Band,bool Offline)? identity = null;
+        (string? Bssid,string? Band,bool Offline,string? Adapter)? identity = null;
         async Task<bool> Observe()
         {
             try
@@ -75,7 +77,7 @@ internal static class NetworkMeasurements
                 if (!offline && (string.IsNullOrWhiteSpace(bssid) || band is not ("2.4" or "5" or "6"))) {
                     return false;
                 }
-                var current = (bssid,band,offline);
+                var current = (bssid,band,offline,reading["adapterId"]?.ToString());
                 if (identity is {} first && current != first) changed = true;
                 identity ??= current;
                 readings.Add(reading);
@@ -90,7 +92,19 @@ internal static class NetworkMeasurements
         async Task<bool> ObserveBoundary() => await Observe() || await Observe();
 
         bool startVerified = await ObserveBoundary();
-        var network = RunConfiguredAsync(false,targets,count,host,port,duration,token,download,upload);
+        var routeErrors = new List<string>();
+        var routedTargets = new List<string>();
+        var startReading = readings.LastOrDefault();
+        async Task<bool> VerifyRoute(string destination)
+        {
+            if (await MatchesSurveyRoute(destination,startReading,token)) return true;
+            routeErrors.Add(L("Маршрут до {0} проходит вне выбранного Wi-Fi-адаптера.",destination));
+            return false;
+        }
+        foreach(var target in targets)
+            if(await VerifyRoute(target)) routedTargets.Add(target);
+        string? routedHost = !string.IsNullOrEmpty(host) && await VerifyRoute(host) ? host : null;
+        var network = RunConfiguredAsync(false,routedTargets.ToArray(),count,routedHost,port,duration,token,download,upload);
         int observations = 1;
         bool endVerified = startVerified;
         while (signal && observations < 5 || !network.IsCompleted)
@@ -103,6 +117,11 @@ internal static class NetworkMeasurements
             observations++;
         }
         var result = await network;
+        if (routeErrors.Count>0)
+        {
+            if (result["error"] is {} networkError) routeErrors.Insert(0,networkError.ToString());
+            result["error"]=string.Join("; ",routeErrors.Distinct());
+        }
         if (!endVerified || !signal || targets.Length>0 || !string.IsNullOrEmpty(host))
             endVerified = await ObserveBoundary();
 
@@ -114,7 +133,7 @@ internal static class NetworkMeasurements
         }
 
         var last = readings[^1];
-        foreach (var key in new[] {"ssid","bssid","band","frequencyMHz","coverage"})
+        foreach (var key in new[] {"ssid","bssid","band","frequencyMHz","coverage","adapterId","adapterName","adapterVerified"})
             if(last[key] is {} value) result[key]=value.DeepClone();
         if (signal)
         {
@@ -132,18 +151,76 @@ internal static class NetworkMeasurements
         return result;
     }
 
+    private static async Task<bool> MatchesSurveyRoute(string host,JsonObject? reading,CancellationToken token)
+    {
+        if(reading?["nonWifiRoute"]?.GetValue<bool>()==true) return false;
+        if(reading?["routeInterface"] is not {} adapter) return true;
+        string name=adapter.ToString();
+        var addresses=NetworkInterface.GetAllNetworkInterfaces().Where(network=>network.Name==name)
+            .SelectMany(network=>network.GetIPProperties().UnicastAddresses).Select(entry=>entry.Address).ToHashSet();
+        if(addresses.Count==0) return false;
+        try
+        {
+            var destinations=await Dns.GetHostAddressesAsync(host,token);
+            bool routed=false;
+            foreach(var destination in destinations)
+            {
+                token.ThrowIfCancellationRequested();
+                using var socket=new Socket(destination.AddressFamily,SocketType.Dgram,ProtocolType.Udp);
+                try { socket.Connect(new IPEndPoint(destination,9)); }
+                catch(SocketException) { continue; }
+                if(socket.LocalEndPoint is not IPEndPoint local) continue;
+                if(!addresses.Contains(local.Address)) return false;
+                routed=true;
+            }
+            return routed;
+        }
+        catch(SocketException) { return true; } // The measurement reports DNS and connectivity errors.
+    }
+
     internal static async Task<JsonObject> ReadWifi(CancellationToken token) {
         if(PlatformServices.WifiReader is {} native)return await native(token);
         var result=new JsonObject();var errors=new List<string>();
-        if(OperatingSystem.IsWindows())
-            return ParseWindowsWifi(await RunProcess("netsh.exe",["wlan","show","interfaces"],token,TimeSpan.FromSeconds(4)));
+        if(OperatingSystem.IsWindows()) {
+            string interfaces=await RunProcess("netsh.exe",["wlan","show","interfaces"],token,TimeSpan.FromSeconds(4));
+            var wifi=ParseWindowsWifi(interfaces);
+            if(wifi["ambiguousAdapters"] is null || GetBestInterface(0x01010101,out uint index)!=0) return wifi;
+            foreach(var network in NetworkInterface.GetAllNetworkInterfaces()) {
+                if(network.NetworkInterfaceType!=NetworkInterfaceType.Wireless80211 || !network.Supports(NetworkInterfaceComponent.IPv4)) continue;
+                try {
+                    if(network.GetIPProperties().GetIPv4Properties()?.Index==index) return ParseWindowsWifi(interfaces,network.Id);
+                } catch(NetworkInformationException) { }
+            }
+            return wifi;
+        }
         else if(OperatingSystem.IsLinux()){
             var devices=await RunProcess("iw",["dev"],token);
             var names=Regex.Matches(devices,@"Interface\s+(\S+)").Select(m=>m.Groups[1].Value).ToArray();
             if(names.Length==0)throw new InvalidOperationException(L("Сигнал Wi-Fi недоступен"));
+            var connected=new List<(string Name,JsonObject Reading)>();
             foreach(string name in names){
                 string link=await RunProcess("iw",["dev",name,"link"],token);
-                var reading=ParseLinuxWifi(link);if(reading["bssid"] is not null)return reading;
+                var reading=ParseLinuxWifi(link);
+                if(reading["bssid"] is not null) connected.Add((name,reading));
+            }
+            if(connected.Count>0) {
+                string? preferred=null;
+                if(connected.Count>1) {
+                    string route=await RunProcess("ip",["route","get","1.1.1.1"],token,TimeSpan.FromSeconds(3));
+                    preferred=Regex.Match(route,@"\bdev\s+(\S+)").Groups[1].Value;
+                }
+                var selected=connected.Count==1?connected[0]:connected.FirstOrDefault(w=>w.Name==preferred);
+                if(selected.Reading is null) throw new InvalidOperationException(L("Не удалось определить активный Wi-Fi-адаптер."));
+                string path=Path.Combine("/sys/class/net",selected.Name);
+                string? hardwareId=File.Exists(Path.Combine(path,"address")) &&
+                    File.Exists(Path.Combine(path,"addr_assign_type")) &&
+                    (await File.ReadAllTextAsync(Path.Combine(path,"addr_assign_type"),token)).Trim()=="0" ?
+                    (await File.ReadAllTextAsync(Path.Combine(path,"address"),token)).Trim() : null;
+                selected.Reading["adapterId"]=hardwareId??"interface:"+selected.Name;
+                selected.Reading["adapterName"]=selected.Name;
+                selected.Reading["adapterVerified"]=hardwareId is not null;
+                selected.Reading["routeInterface"]=selected.Name;
+                return selected.Reading;
             }
             result["coverage"]=false;result["quality"]=0;
         }
@@ -159,7 +236,10 @@ internal static class NetworkMeasurements
         else result["error"]=L("Сигнал Wi-Fi недоступен");
         return result;
     }
-    internal static JsonObject ParseWindowsWifi(string text)
+    [System.Runtime.InteropServices.DllImport("iphlpapi.dll",ExactSpelling=true)]
+    private static extern uint GetBestInterface(uint destination,out uint index);
+
+    internal static JsonObject ParseWindowsWifi(string text,string? preferredAdapter=null)
     {
         var adapters = new List<Dictionary<string, string>> { new(StringComparer.OrdinalIgnoreCase) };
         foreach (var line in text.Split('\n')) {
@@ -171,6 +251,7 @@ internal static class NetworkMeasurements
             adapters[^1][key] = line[(colon+1)..].Trim();
         }
         JsonObject? active = null;
+        var connected=new List<JsonObject>();
         foreach (var fields in adapters) {
             string? Field(params string[] names) => names.Select(n => fields.GetValueOrDefault(n)).FirstOrDefault(v => v != null);
             string? state = Field("state","состояние")?.ToLowerInvariant();
@@ -178,6 +259,14 @@ internal static class NetworkMeasurements
             var bssid = Regex.Match(Field("ap bssid","bssid","bssid точки доступа","bssid тд") ?? "", @"\b(?:[a-f0-9]{2}:){5}[a-f0-9]{2}\b", RegexOptions.IgnoreCase);
             if (!bssid.Success && state is not ("connected" or "подключено" or "подключен" or "подключён")) continue;
             var reading = new JsonObject { ["coverage"]=true, ["ssid"]=Field("ssid") };
+            string? name=Field("description","описание","name","имя");
+            bool verified=Guid.TryParse(Field("guid","идентификатор GUID"),out var guid);
+            if(verified || name is not null) {
+                reading["adapterId"]=verified?guid.ToString("D"):"interface:"+Field("name","имя");
+                reading["adapterName"]=name;
+                reading["adapterVerified"]=verified;
+            }
+            if(Field("name","имя") is {} interfaceName) reading["routeInterface"]=interfaceName;
             if (bssid.Success) reading["bssid"] = bssid.Value;
             var quality = Regex.Match(Field("signal","сигнал","уровень сигнала") ?? "", @"\d+");
             if (int.TryParse(quality.Value, out int q)) reading["quality"]=Math.Clamp(q,0,100);
@@ -193,10 +282,16 @@ internal static class NetworkMeasurements
                     "2.4" => channel==14?2484:2407+channel*5, "6" => channel==2?5935:5950+channel*5, _ => 5000+channel*5
                 };
             }
-            if (bssid.Success && band is not null) return reading;
+            if (bssid.Success && band is not null) connected.Add(reading);
             active ??= reading;
         }
 
+        if(connected.Count==1) return connected[0];
+        if(connected.Count>1) {
+            if(Guid.TryParse(preferredAdapter,out var preferred) &&
+               connected.FirstOrDefault(r=>r["adapterId"]?.ToString()==preferred.ToString("D")) is {} chosen) return chosen;
+            return new JsonObject {["ambiguousAdapters"]=true,["error"]=L("Не удалось определить активный Wi-Fi-адаптер.")};
+        }
         if (active is not null) return active;
         if (adapters.Any(fields => (fields.GetValueOrDefault("state") ?? fields.GetValueOrDefault("состояние"))?.ToLowerInvariant()
             is "disconnected" or "отключено" or "отключен" or "отключён"))

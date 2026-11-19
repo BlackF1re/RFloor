@@ -24,9 +24,12 @@ internal static class UnifiedDocument {
         Call("AddDocument",source,null);Call("SwitchMode",false);
         var points=source["points"]!.AsArray();points.Clear();
         points.Add(JsonNode.Parse("""{"id":"sample","x":1,"y":1,"band":"5","measurements":{"rssi":-55,"downloadMbps":850,"uploadMbps":720,"frequencyMHz":5180,"ssid":"Test","bssid":"aa:bb:cc:dd:ee:ff","pings":[{"target":"192.168.2.1","avg":2,"loss":0},{"target":"8.8.8.8","avg":45},{"target":"timeout.test","avg":null,"loss":100}]}}"""));
-        typeof(MainWindow).GetMethod("SavePointReading",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,
+        var sourceType=typeof(MainWindow).GetNestedType("SurveySource",BindingFlags.NonPublic)!;
+        object SurveySource(string? device=null,string? adapter=null)=>Activator.CreateInstance(sourceType,[device,adapter])!;
+        var saveReading=typeof(MainWindow).GetMethod("SavePointReading",BindingFlags.Static|BindingFlags.NonPublic)!;
+        saveReading.Invoke(null,
             [points[0],new JsonObject {["rssi"]=-62,["frequencyMHz"]=2437,["bssid"]="aa:bb:cc:dd:ee:01"},
-                new JsonObject {["signal"]=true},"2.4","aa:bb:cc:dd:ee:01"]);
+                new JsonObject {["signal"]=true},"2.4","aa:bb:cc:dd:ee:01",SurveySource()]);
         Call("SwitchMode",true);Require(points.Count==1,"Switching modes discarded measurements.");
         var picker=view.FindControl<SplitButton>("LayerPicker")!;
         var pickerItems=(MenuFlyout)picker.Flyout!;
@@ -34,7 +37,8 @@ internal static class UnifiedDocument {
         string LayerName()=>view.FindControl<TextBlock>("LayerLabel")!.Text!;
         Require(Layers().Select(i=>(string)i.Header!).SequenceEqual(new[]{
             Localization.L("Сигнал"),Localization.L("iperf3 · скачивание"),Localization.L("iperf3 · отправка"),
-            Localization.L("Ping · {0}","192.168.2.1"),Localization.L("Ping · {0}","8.8.8.8"),Localization.L("Слои выключены")}),
+            Localization.L("Ping · {0}","192.168.2.1"),Localization.L("Ping · {0}","8.8.8.8"),
+            Localization.L("Потери пакетов · {0}","192.168.2.1"),Localization.L("Потери пакетов · {0}","timeout.test"),Localization.L("Слои выключены")}),
             "Layer choices were not derived from the available results.");
         host.Show();Dispatcher.UIThread.RunJobs();host.UpdateLayout();
         void ClickLayerPart(string name) {
@@ -54,6 +58,10 @@ internal static class UnifiedDocument {
         var entryLabel=(string)entry.GetType().GetProperty("Label")!.GetValue(entry)!;
         Require(entryLabel.EndsWith($" · 45 {Localization.L("мс")}"),"The ping layer displayed a different target's latency.");
         picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
+        Require(LayerName()==Localization.L("Потери пакетов · {0}","192.168.2.1"),"The loss layer was missing.");
+        picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
+        Require(LayerName()==Localization.L("Потери пакетов · {0}","timeout.test"),"An unreachable target lost its packet loss layer.");
+        picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
         Require(LayerName()==Localization.L("Слои выключены"),"The primary button did not include the off state.");
         picker.RaiseEvent(new RoutedEventArgs(SplitButton.ClickEvent));
         Require(LayerName()==Localization.L("Сигнал"),"The primary button did not wrap to the first layer.");
@@ -67,6 +75,30 @@ internal static class UnifiedDocument {
         Require(!picker.IsEnabled && Layers().Length==1,"A band without results exposed a measurement layer.");
         Require(PointParts() is [{Fill:not null}],"A point measured on another band did not become a filled placeholder.");
         band.SelectedIndex=1;
+        source["devices"]=JsonNode.Parse("""{"laptop":{"name":"Laptop","adapters":{"internal":{"name":"Internal","verified":true},"usb":{"name":"USB","verified":true}}},"phone":{"name":"Phone"}}""");
+        void SaveSignal(string device,string adapter,int rssi)=>saveReading.Invoke(null,
+            [points[0],new JsonObject {["rssi"]=rssi,["bssid"]="aa:bb:cc:dd:ee:ff"},
+                new JsonObject {["signal"]=true},"5","aa:bb:cc:dd:ee:ff",SurveySource(device,adapter)]);
+        SaveSignal("laptop","internal",-62);
+        SaveSignal("laptop","usb",-65);
+        SaveSignal("laptop","usb",-63);
+        Call("RenderPlan");
+        var devices=view.FindControl<ComboBox>("DevicePicker")!;
+        var adapters=view.FindControl<ComboBox>("AdapterPicker")!;
+        var summary=view.FindControl<ComboBox>("SummaryPicker")!;
+        string PointLabel()=>(string)view.FindControl<ListBox>("Objects")!.Items[0]!.GetType().GetProperty("Label")!
+            .GetValue(view.FindControl<ListBox>("Objects")!.Items[0])!;
+        Require(PointLabel().EndsWith("-60 dBm"),"The combined map did not count each adapter once.");
+        summary.SelectedIndex=1;
+        Require(PointLabel().EndsWith("-63 dBm"),"The minimum did not use the lowest RSSI.");
+        summary.SelectedIndex=2;
+        Require(PointLabel().EndsWith("-55 dBm"),"The maximum did not use the highest RSSI.");
+        devices.SelectedItem=devices.Items.OfType<ComboBoxItem>().Single(i=>Equals(i.Tag,"laptop"));
+        adapters.SelectedItem=adapters.Items.OfType<ComboBoxItem>().Single(i=>Equals(i.Tag,"usb"));
+        Require(PointLabel().EndsWith("-63 dBm"),"Switching adapters showed results from another source.");
+        band.SelectedIndex=0;
+        Require(PointParts() is [{Fill:not null}],"Another source's position did not remain available as a placeholder.");
+        band.SelectedIndex=1;
         var file=DispatchProxy.Create<IStorageFile,FileProxy>();var target=(FileProxy)(object)file;((Dictionary<string,IStorageFile>)Get("storageFiles")!).Add(file.Path.ToString(),file);Set("path",file.Path.ToString());Set("dirty",true);
         var save=(Task<bool>)Call("Save",false)!;
         var deadline=DateTime.UtcNow.AddSeconds(10);while(!save.IsCompleted && DateTime.UtcNow<deadline){Dispatcher.UIThread.RunJobs();Thread.Sleep(1);}
@@ -75,8 +107,12 @@ internal static class UnifiedDocument {
         typeof(MainWindow).GetMethod("Validate",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,[restored]);
         Require(restored["format"]!.ToString()=="rfloor.plan" && restored["geometry"]!["walls"]!.AsArray().Count>0,"Plan geometry was lost.");
         var readings=restored["points"]![0]!["readings"]!.AsArray();
-        Require(readings.Count==2 && readings[0]!["measurements"]!["downloadMbps"]!.GetValue<int>()==850 &&
-            readings[1]!["measurements"]!["rssi"]!.GetValue<int>()==-62,"Multi-band roundtrip lost new or legacy results.");
+        Require(readings.Count==4 && readings[0]!["measurements"]!["downloadMbps"]!.GetValue<int>()==850 &&
+            readings[1]!["measurements"]!["rssi"]!.GetValue<int>()==-62 &&
+            readings[3]!["adapterId"]!.ToString()=="usb" && readings[3]!["measurements"]!["rssi"]!.GetValue<int>()==-63,
+            "Multi-band roundtrip lost source identities, new or legacy results.");
+        Require(restored["modifiedAt"] is not null && restored.IndexOf("devices")<restored.IndexOf("geometry") &&
+            restored.IndexOf("settings")<restored.IndexOf("geometry"),"The file header lost metadata or survey settings.");
         Require(Get("dirty") is false,"Save did not clear dirty state.");
         var documentTabs=view.FindControl<TabControl>("DocumentTabs")!;
         Require(((TabItem)documentTabs.SelectedItem!).Header is StackPanel {Children:[TextBlock {Text:"sample.rfplan"},_]},
@@ -152,13 +188,14 @@ internal static class UnifiedDocument {
         void MoveTo(Point at) {host.MouseMove(at);Dispatcher.UIThread.RunJobs();}
         var probe=OnMap(.43,.37);
         MoveTo(probe);
-        Require(badge.IsVisible && hoverText.Text==$"{-50.675:0.#} dBm" && hoverMarker.Fill is SolidColorBrush,
+        string expectedSignal=$"{-50.675:0.#} dBm"+Localization.L(" · Источников: {0}",1);
+        Require(badge.IsVisible && hoverText.Text==expectedSignal && hoverMarker.Fill is SolidColorBrush,
             "Hover did not show the local, unsnapped signal estimate and color.");
         var signalColor=((SolidColorBrush)hoverMarker.Fill!).Color;
         host.MouseWheel(probe,new Vector(0,1),RawInputModifiers.Control);Dispatcher.UIThread.RunJobs();
-        Require(badge.IsVisible && hoverText.Text==$"{-50.675:0.#} dBm","Cursor-anchored zoom changed the hover estimate.");
+        Require(badge.IsVisible && hoverText.Text==expectedSignal,"Cursor-anchored zoom changed the hover estimate.");
         Layers()[1].RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-        var latency=hoverText.Text!.Split(' ',2);
+        var latency=hoverText.Text!.Split(" · ",2)[0].Split(' ',2);
         Require(badge.IsVisible && latency.Length==2 && latency[1]==Localization.L("мс") &&
             double.TryParse(latency[0],out double milliseconds) && Math.Abs(milliseconds-47)<1 &&
             ((SolidColorBrush)hoverMarker.Fill!).Color!=signalColor,"Changing layers did not refresh the estimate and color.");

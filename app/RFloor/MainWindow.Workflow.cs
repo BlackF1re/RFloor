@@ -102,21 +102,37 @@ public partial class MainWindow
         var panel = new StackPanel { Margin=new Thickness(6), MaxWidth=340 };
         panel.Children.Add(new TextBlock { Text=ObjectName(point,L("Точка")), FontWeight=FontWeights.SemiBold, Margin=new Thickness(0,0,0,6) });
         var reading=MapReading(point);
-        bool showState=ReferenceEquals(animatedPoint,point) || PointHasFailure(point,reading);
+        bool showState=ReferenceEquals(animatedPoint,point) || PointHasFailure(point);
         if(showState && MeasurementStateText(point) is {} state)
             panel.Children.Add(new TextBlock {Text=state,TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DarkOrange});
         if(showState && point["measurementDiagnostic"] is {} diagnostic)
             panel.Children.Add(new TextBlock {Text=diagnostic.ToString(),TextWrapping=TextWrapping.Wrap,Foreground=Brushes.DarkOrange});
-        if(reading is not null) AddReadingDetails(panel,reading);
-        else panel.Children.Add(new TextBlock {Text=L("Нет замера в диапазоне {0} ГГц.",Band),TextWrapping=TextWrapping.Wrap});
+        if(SummaryView && activeLayer.Kind!=LayerKind.Off && Sample(point) is {} sample) {
+            var sources=PointSourceSamples(ViewReadings(point),activeLayer).Count(s=>!NoCoverage(s.Sample.Value,s.Sample.Kind));
+            string value=NoCoverage(sample.Value,sample.Kind)?L("нет покрытия"):$"{sample.Value:0.##} {CoverageUnit(sample.Kind)}";
+            panel.Children.Add(new TextBlock {Text=$"{LayerTitle(activeLayer)} · {SummaryLabel(summary)}",TextWrapping=TextWrapping.Wrap});
+            panel.Children.Add(new TextBlock {Text=value+L(" · Источников: {0}",sources),TextWrapping=TextWrapping.Wrap});
+        } else if(reading is not null && !SummaryView) {
+            var source=ReadingSource(reading);
+            panel.Children.Add(new TextBlock {Text=$"{DeviceLabel(source.Device)} · {AdapterLabel(source)}",TextWrapping=TextWrapping.Wrap});
+            AddReadingDetails(panel,reading);
+        } else if(reading is not null && activeLayer.Kind==LayerKind.Off) {
+            foreach(var group in ViewReadings(point).GroupBy(ReadingSource)) {
+                panel.Children.Add(new TextBlock {Text=$"{DeviceLabel(group.Key.Device)} · {AdapterLabel(group.Key)}",
+                    TextWrapping=TextWrapping.Wrap,Margin=new Thickness(0,6,0,0)});
+                AddReadingDetails(panel,group.OrderBy(r=>r["timestamp"]?.ToString(),StringComparer.Ordinal).Last());
+            }
+        } else panel.Children.Add(new TextBlock {Text=L("Нет замера для выбранного слоя в диапазоне {0} ГГц.",Band),TextWrapping=TextWrapping.Wrap});
         return new ScrollViewer {Content=panel,MaxHeight=400,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
     }
 
     private Control SurveyCardActions(JsonObject point)
     {
         var reading=MapReading(point);
-        bool failed=PointHasFailure(point,reading);
-        var action=new Button {Content=failed?L("Исправить"):L("Замерить на другой частоте"),IsEnabled=measurementCancellation is null};
+        bool failed=PointHasFailure(point);
+        bool placeholder=reading is null || activeLayer.Kind!=LayerKind.Off && Sample(point) is null;
+        var action=new Button {Content=failed?L("Исправить"):placeholder?L("Замерить текущим устройством"):L("Замерить на другой частоте"),
+            IsEnabled=measurementCancellation is null};
         action.Classes.Add("dialogAccent");
         action.HorizontalAlignment=HorizontalAlignment.Right;
         async Task MeasureOn(string band,string? accessPoint)
@@ -125,10 +141,9 @@ public partial class MainWindow
             HideTouchCard();
             await MeasurePointAsync(point,options,select:true,targetBand:band,targetAccessPoint:accessPoint);
         }
-        if(failed) {
+        if(failed || placeholder) {
             string band=Band;
-            string? ap=SelectedAccessPoint;
-            action.Click+=async (_,_)=>await MeasureOn(band,ap);
+            action.Click+=async (_,_)=>await MeasureOn(band,null);
         } else {
             string currentBand=Band;
             string? selectedAp=SelectedAccessPoint;

@@ -33,6 +33,17 @@ internal static class NetworkChecks {
             PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject {["band"]=observation++==0?"2.4":"5",["bssid"]="test",["rssi"]=-53});
             result=await NetworkMeasurements.RunSurveyAsync(false,[],4,null,5201,1,CancellationToken.None,false,false);
             if(result["measurementState"]?.ToString()!="mixed" || result["rssi"] is not null)throw new Exception("A band change produced a valid survey reading.");
+            observation=0;
+            PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject {["band"]="5",["bssid"]="test",
+                ["adapterId"]=observation++==0?"internal":"usb",["rssi"]=-53});
+            result=await NetworkMeasurements.RunSurveyAsync(false,[],4,null,5201,1,CancellationToken.None,false,false);
+            if(result["measurementState"]?.ToString()!="mixed")throw new Exception("A mid-survey adapter change was accepted.");
+            PlatformServices.WifiReader=_=>Task.FromResult(new JsonObject { ["band"]="5",["bssid"]="test",
+                ["adapterId"]="internal",["nonWifiRoute"]=true });
+            PlatformServices.IperfRunner=(_,_,_,_,_)=>throw new Exception("iperf3 was invoked outside the survey adapter.");
+            result=await NetworkMeasurements.RunSurveyAsync(false,["router"],1,"router",5201,1,CancellationToken.None,true,true);
+            if(result["error"] is null || result["pings"] is not JsonArray {Count:0} || result["downloadMbps"] is not null || result["uploadMbps"] is not null)
+                throw new Exception("Transport measurements were attributed to the wrong adapter.");
             Console.WriteLine("Network checks passed: platform Wi-Fi/native iperf bridge, both directions, enabled measurements, failures and cancellation.");
         }finally{PlatformServices.WifiReader=wifi;PlatformServices.IperfRunner=iperf;}
         foreach(var (frequency,band) in new[]{(2412,"2.4"),(5180,"5"),(6115,"6")}){
@@ -45,6 +56,14 @@ internal static class NetworkChecks {
             "Name : Wi-Fi\nState : connected\nSSID : test\nAP BSSID : aa:bb:cc:dd:ee:ff\nBand : 5 GHz\nChannel : 36\nSignal : 84%\nRssi : -44\nName : Spare\nState : disconnected");
         if(windows["bssid"]?.ToString()!="aa:bb:cc:dd:ee:ff" || windows["frequencyMHz"]?.GetValue<int>()!=5180 || windows["rssi"]?.GetValue<int>()!=-44)
             throw new Exception("A disconnected adapter overwrote the active Windows Wi-Fi interface.");
+        const string primary="11111111-1111-1111-1111-111111111111", secondary="22222222-2222-2222-2222-222222222222";
+        var dual=$"Name : Wi-Fi\nGUID : {primary}\nState : connected\nBSSID : aa:bb:cc:dd:ee:01\nBand : 5 GHz\nName : External\nGUID : {secondary}\nState : connected\nBSSID : aa:bb:cc:dd:ee:02\nBand : 5 GHz";
+        if(NetworkMeasurements.ParseWindowsWifi(dual,secondary)["adapterId"]?.ToString()!=secondary ||
+            NetworkMeasurements.ParseWindowsWifi(dual)["error"] is null)
+            throw new Exception("Connected Wi-Fi adapters were silently conflated.");
+        var localized=$"Имя : Беспроводная сеть\nИдентификатор GUID : {primary}\nСостояние : подключено\nAP BSSID : aa:bb:cc:dd:ee:01\nДиапазон : 5 GHz";
+        if(NetworkMeasurements.ParseWindowsWifi(localized)["adapterId"]?.ToString()!=primary)
+            throw new Exception("The Windows adapter GUID was lost in localized output.");
         if(Environment.GetEnvironmentVariable("RFLOOR_NETWORK_CHECK_HOST") is {} host){
             // Hosted runners test real transport over loopback and have no Wi-Fi adapter.
             bool loopback=IPAddress.TryParse(host,out var address) && IPAddress.IsLoopback(address);

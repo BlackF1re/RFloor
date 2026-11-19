@@ -163,16 +163,13 @@ public partial class MainWindow
         var point = SurveyPosition(local);
         if (!CanPlaceSurveyPoint(point)) { Status.Text=L("Разместите точку внутри комнаты или вплотную к стене."); return; }
         if (!TryMeasurementOptions(out var options)) return;
-        Remember();
-        EnsureSurveyDocument();
         var item=Points.OfType<JsonObject>().MinBy(p=>((Vector)(point-new Point(Number(p["x"]),Number(p["y"])))).SquaredLength);
         if(item is null || ((Vector)(point-new Point(Number(item["x"]),Number(item["y"])))).SquaredLength>1e-12)
         {
             item=new JsonObject { ["id"]=Id(), ["name"]=L("Точка {0}", Points.Count+1), ["x"]=point.X, ["y"]=point.Y, ["band"]=Band, ["accessPoint"]=SelectedAccessPoint };
-            Points.Add(item);
         }
         pointPreview=null;
-        await MeasurePointAsync(item, options, remember:false, select:true);
+        await MeasurePointAsync(item, options, select:true);
     }
 
     private async Task FinishSurveyPlacement(Point local, Point viewportPoint, double hitSize, bool dragged)
@@ -251,26 +248,22 @@ public partial class MainWindow
 
     private void Measure_Click(object sender, RoutedEventArgs e) => measurementCancellation?.Cancel();
 
-    private async Task<string?> MeasurementConnectionError(string band,string? accessPoint,CancellationToken token)
+    private async Task<JsonObject?> ProbeSurveyConnection(CancellationToken token)
     {
         using var probe=CancellationTokenSource.CreateLinkedTokenSource(token);
         probe.CancelAfter(TimeSpan.FromSeconds(5));
         try
         {
-            var wifi=await NetworkMeasurements.ReadWifi(probe.Token);
-            if(wifi["band"]?.ToString()==band && wifi["coverage"]?.GetValue<bool>()!=false &&
-                (accessPoint is null || string.Equals(wifi["bssid"]?.ToString(),accessPoint,StringComparison.OrdinalIgnoreCase)))
-                return null;
-            return L("Подключитесь к нужной точке доступа в диапазоне {0} ГГц.",band);
+            return await NetworkMeasurements.ReadWifi(probe.Token);
         }
         catch(Exception ex) when(!token.IsCancellationRequested &&
             ex is OperationCanceledException or InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
         {
-            return L("Не удалось проверить текущий диапазон Wi-Fi.");
+            return new JsonObject {["error"]=ex is OperationCanceledException?L("Не удалось проверить текущий диапазон Wi-Fi."):ex.Message};
         }
     }
 
-    private async Task MeasurePointAsync(JsonObject item, MeasurementOptions options, bool remember = true,
+    private async Task MeasurePointAsync(JsonObject item, MeasurementOptions options,
         bool select = false, string? targetBand = null, string? targetAccessPoint = null)
     {
         if(measurementCancellation is not null) return;
@@ -278,8 +271,6 @@ public partial class MainWindow
         measurementCancellation=cancellation;
         var currentDocument=document;
         bool measurementStarted=false;
-        string requestedBand=targetBand??Band;
-        string? requestedAccessPoint=targetBand is null?SelectedAccessPoint:targetAccessPoint;
         int delay=(int)MeasurementDelay.Value;
         SurveyPanel.IsEnabled=false; SettingsMenu.IsEnabled=false; DocumentTabs.IsEnabled=false; SurveyTools.IsEnabled=false; ModeSwitch.IsEnabled=false;
         HistoryTools.IsVisible=false; MeasureButton.IsVisible=true;
@@ -287,35 +278,43 @@ public partial class MainWindow
         animation.Tick+=(_,_)=>UpdateMeasurementMarker();
         try
         {
-            if(targetBand is not null) {
-                Status.Text=L("Диапазон Wi-Fi");
-                if(await MeasurementConnectionError(targetBand,targetAccessPoint,cancellation.Token) is {} error) {
-                    Status.Text=error;
-                    MessageBox.Show(this,error,L("Диапазон Wi-Fi"));
-                    return;
-                }
+            var device=await IdentifySurveyDevice();
+            if(device is null) return;
+            cancellation.Token.ThrowIfCancellationRequested();
+            Status.Text=L("Диапазон Wi-Fi");
+            var wifi=await ProbeSurveyConnection(cancellation.Token);
+            string? requestedBand=wifi?["band"]?.ToString(), requestedAccessPoint=wifi?["bssid"]?.ToString();
+            bool connected=requestedBand is "2.4" or "5" or "6" && !string.IsNullOrWhiteSpace(requestedAccessPoint) &&
+                wifi?["coverage"]?.GetValue<bool>()!=false;
+            if(!connected || targetBand is not null && (requestedBand!=targetBand || targetAccessPoint is not null &&
+                !string.Equals(requestedAccessPoint,targetAccessPoint,StringComparison.OrdinalIgnoreCase))) {
+                string error=wifi?["error"]?.ToString() ?? (targetBand is null?L("Не удалось проверить текущий диапазон Wi-Fi."):
+                    L("Подключитесь к нужной точке доступа в диапазоне {0} ГГц.",targetBand));
+                Status.Text=error;
+                MessageBox.Show(this,error,L("Диапазон Wi-Fi"));
+                return;
             }
             animatedPoint=item;
             waitingForMeasurement=delay>0;
             measurementAnimation.Restart();
             animation.Start();
             var requested=new JsonObject { ["signal"]=options.Signal,["ping"]=options.Ping,["download"]=options.Download,["upload"]=options.Upload,
-                ["pingTargets"]=new JsonArray((options.Ping?options.Targets:[]).Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray()) };
-            if (remember) Remember();
+                ["pingTargets"]=new JsonArray((options.Ping?options.Targets:[]).Select(x=>(JsonNode?)JsonValue.Create(x)).ToArray()),
+                ["pingCount"]=options.Count,["iperfHost"]=options.Host,["iperfPort"]=options.Port,["iperfDuration"]=options.Duration };
+            Remember();
+            EnsureSurveyDocument();
+            if(!Points.Contains(item)) Points.Add(item);
+            var source=RegisterSurveySource(device,wifi!);
             item["measurementState"]="running"; item.Remove("measurementDiagnostic"); dirty=true;
             item["attemptBand"]=requestedBand;
             item["attemptAccessPoint"]=requestedAccessPoint;
+            item["attemptDeviceId"]=source.Device;
+            item["attemptAdapterId"]=source.Adapter;
             RenderPlan();
             if (select) Objects.SelectedItem=Objects.Items.Cast<ObjectEntry>().FirstOrDefault(o=>ReferenceEquals(o.Item,item));
             if(delay>0) {
                 Status.Text=L("Замер начнётся через {0} с.",delay);
                 await Task.Delay(TimeSpan.FromSeconds(delay),cancellation.Token);
-                if(targetBand is not null && await MeasurementConnectionError(targetBand,targetAccessPoint,cancellation.Token) is {} error) {
-                    item["measurementState"]="mixed";
-                    item["measurementDiagnostic"]=error;
-                    Status.Text=error;
-                    return;
-                }
                 waitingForMeasurement=false;
                 measurementAnimation.Restart();
                 UpdateMeasurementMarker();
@@ -327,17 +326,10 @@ public partial class MainWindow
             if (!ReferenceEquals(document,currentDocument) || !Points.Contains(item)) { Status.Text=L("Проект изменён, результат замера не применён."); return; }
             string? detected=result["band"]?.ToString();
             string? bssid=result["bssid"]?.ToString();
-            bool offline=result["coverage"]?.GetValue<bool>()==false;
             string? state=result["measurementState"]?.ToString();
-            if(targetBand is not null && (detected!=targetBand || targetAccessPoint is not null &&
-                !string.Equals(bssid,targetAccessPoint,StringComparison.OrdinalIgnoreCase))) state="mixed";
-            if(state is null && offline && requestedAccessPoint is null) state="unverified";
-            if(offline) {
-                // A disconnected observation describes signal coverage only, for the explicitly selected AP.
-                result["pings"]=new JsonArray();
-                result.Remove("downloadMbps");
-                result.Remove("uploadMbps");
-            }
+            if(state is null && (detected!=requestedBand ||
+                !string.Equals(bssid,requestedAccessPoint,StringComparison.OrdinalIgnoreCase) ||
+                result["adapterId"]?.ToString()!=wifi!["adapterId"]?.ToString())) state="mixed";
             bool hasMeasurement=result["pings"] is JsonArray {Count: >0} ||
                 new[]{"rssi","quality","uploadMbps","downloadMbps"}.Any(key=>Numeric(result[key],out _));
             if(state is null && !hasMeasurement) state="failed";
@@ -347,13 +339,19 @@ public partial class MainWindow
                 Status.Text=MeasurementStateText(item)!;
                 return;
             }
-            SavePointReading(item,result,requested,detected ?? requestedBand,bssid ?? requestedAccessPoint);
-            if(ReadingHasFailures(MapReadingFor(item,detected??requestedBand,bssid??requestedAccessPoint)))
+            result.Remove("adapterId"); result.Remove("adapterName"); result.Remove("adapterVerified");
+            var reading=SavePointReading(item,result,requested,requestedBand!,requestedAccessPoint,source);
+            if(ReadingHasFailures(reading))
                 item["measurementState"]="partial";
             if(detected is "2.4" or "5" or "6") {
                 updating=true;
                 try {
                     BandPicker.SelectedIndex=detected=="2.4"?0:detected=="5"?1:2;
+                    if(!SummaryView) {
+                        viewDevice=source.Device;
+                        viewAdapter=source.Adapter;
+                        UpdateSurveySources();
+                    }
                     UpdateAccessPoints();
                     if (bssid is not null)
                         AccessPointPicker.SelectedItem=AccessPointPicker.Items.Cast<ComboBoxItem>()
@@ -413,7 +411,7 @@ public partial class MainWindow
            !ReferenceEquals(hit.Parent,Plan) ||
            Objects.SelectedItems?.OfType<ObjectEntry>().Any(entry=>ReferenceEquals(entry.Item,point))==true) return;
         var position=new Point(Number(point["x"]),Number(point["y"]));
-        surveyHoverRing=CreatePointMarker(position,PointHasFailure(point,MapReading(point))?Brushes.Firebrick:Brushes.DarkOrange,"point-hover",SurveyFocusSize);
+        surveyHoverRing=CreatePointMarker(position,PointHasFailure(point)?Brushes.Firebrick:Brushes.DarkOrange,"point-hover",SurveyFocusSize);
         Plan.Children.Add(surveyHoverRing);
     }
 
@@ -428,7 +426,7 @@ public partial class MainWindow
             const double hitSize = 14;
             var position = new Point(Number(point["x"]), Number(point["y"]));
             var reading=MapReading(point);
-            bool failed=PointHasFailure(point,reading);
+            bool failed=PointHasFailure(point);
             bool pending=ReferenceEquals(animatedPoint,point);
             bool placeholder=!pending && !(failed && reading is null) && (activeLayer.Kind==LayerKind.Off?reading is null:sample is null);
             var color=pending?Brushes.Gray:failed?Brushes.Firebrick:Brushes.DarkOrange;

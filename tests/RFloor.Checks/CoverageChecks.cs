@@ -44,6 +44,16 @@ internal static class CoverageChecks
         Check(uncovered.Rasterize(new Rect(0,0,3,3),60,60,Green) is null,"Rasterization turned missing coverage into color.");
         var masked=blocked.Rasterize(new Rect(0,0,3,3),60,60,Green)!;
         Check(masked[(5*60+5)*4+3]==0 && masked[(5*60+25)*4+3]>0,"Rasterization ignored a wall mask.");
+        var first=new CoverageInterpolator(triangle.Select(s=>s with {Value=40}));
+        var second=new CoverageInterpolator(triangle.Select(s=>new Sample(s.Position+new Vector(1,0),80)));
+        var unsupported=new CoverageInterpolator(triangle.Take(1).Select(s=>s with {Value=110}));
+        Avalonia.Media.Color Encode(double value,byte alpha)=>Avalonia.Media.Color.FromArgb(value>0?(byte)255:(byte)0,0,0,(byte)value);
+        foreach(var (mode,wanted) in new[]{(SurveySummary.Average,60),(SurveySummary.Minimum,40),(SurveySummary.Maximum,80)}) {
+            var combined=CoverageInterpolator.Rasterize([first,second,unsupported],mode,new Rect(0,0,4,3),80,60,Encode)!;
+            int Pixel(int x,int y)=>combined[(y*80+x)*4];
+            Check(Pixel(30,10)==wanted && Pixel(10,10)==40 && Pixel(64,4)==80 && Pixel(75,55)==0,
+                "Summary raster pooled raw points, counted unsupported data, or extrapolated.");
+        }
 
         // A grid exercises cocircular points and shared edges. Any affine field
         // must be reproduced exactly, independently of sample density.

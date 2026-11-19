@@ -1,6 +1,26 @@
 
 namespace RFloor;
 
+internal enum SurveySummary { Average, Minimum, Maximum }
+
+internal struct CoverageSummary
+{
+    private double value;
+    internal int Count {get;private set;}
+    internal double Confidence {get;private set;}
+    internal readonly double Value(SurveySummary mode) => mode==SurveySummary.Average?value/Count:value;
+
+    internal void Add(double sample,double confidence,SurveySummary mode)
+    {
+        value=Count==0?sample:mode switch {
+            SurveySummary.Minimum=>Math.Min(value,sample),
+            SurveySummary.Maximum=>Math.Max(value,sample), _=>value+sample
+        };
+        Confidence=Math.Max(Confidence,confidence);
+        Count++;
+    }
+}
+
 // Local piecewise-linear interpolation. Geometry is built once per room/render.
 // Support is a distance heuristic, not a statistical confidence interval.
 internal sealed class CoverageInterpolator
@@ -103,40 +123,27 @@ internal sealed class CoverageInterpolator
     // Rasterize the triangle footprint with four subpixel samples per pixel.
     // Each subpixel belongs to the first matching triangle, including shared edges.
     internal byte[]? Rasterize(Rect bounds,int width,int height,Func<double,byte,Color> palette)
+        => Rasterize([this],SurveySummary.Average,bounds,width,height,palette);
+
+    internal static byte[]? Rasterize(CoverageInterpolator[] models,SurveySummary mode,Rect bounds,int width,int height,
+        Func<double,byte,Color> palette)
     {
-        if(triangles.Count==0) return null;
+        if(models.All(model=>model.triangles.Count==0)) return null;
         int subWidth=width*2,subHeight=height*2;
-        double dx=bounds.Width/subWidth,dy=bounds.Height/subHeight;
-        var surface=new uint[subWidth*subHeight];
+        var surface=new CoverageSummary[subWidth*subHeight];
+        var visited=new int[surface.Length];
         bool painted=false;
-        foreach(var t in triangles) {
-            var patch=new Patch(samples[t.A],samples[t.B],samples[t.C]);
-            int x0=Start(patch.Left,bounds.X,dx,subWidth), x1=End(patch.Right,bounds.X,dx,subWidth);
-            int y0=Start(patch.Top,bounds.Y,dy,subHeight), y1=End(patch.Bottom,bounds.Y,dy,subHeight);
-            for(int y=y0;y<y1;y++) for(int x=x0;x<x1;x++) {
-                int index=y*subWidth+x;
-                if(surface[index]!=0) continue;
-                var p=new Point(bounds.X+(x+.5)*dx,bounds.Y+(y+.5)*dy);
-                if(!patch.Contains(p,out var wa,out var wb,out var wc)) continue;
-                if(Evaluate(patch,p,wa,wb,wc) is not {} estimate) {
-                    surface[index]=1; // Transparent, claimed by this triangle.
-                    continue;
-                }
-                var color=palette(estimate.Value,(byte)(170*estimate.Confidence));
-                uint a=color.A;
-                surface[index]=a<<24 | color.R*a/255<<16 | color.G*a/255<<8 | color.B*a/255;
+        for(int i=0;i<models.Length;i++) {
+            models[i].SampleRaster(bounds,subWidth,subHeight,visited,i+1,(index,value,confidence)=>{
+                surface[index].Add(value,confidence,mode);
                 painted=true;
-            }
+            });
         }
         if(!painted) return null;
         var pixels=new byte[width*height*4];
         for(int y=0;y<height;y++) for(int x=0;x<width;x++) {
             int from=2*y*subWidth+2*x, to=(y*width+x)*4;
-            uint a=surface[from], b=surface[from+1], c=surface[from+subWidth], d=surface[from+subWidth+1];
-            if(a==1) a=0;
-            if(b==1) b=0;
-            if(c==1) c=0;
-            if(d==1) d=0;
+            uint a=Pixel(from),b=Pixel(from+1),c=Pixel(from+subWidth),d=Pixel(from+subWidth+1);
             for(int channel=0;channel<4;channel++) {
                 int shift=channel*8;
                 pixels[to+channel]=(byte)((((a>>shift)&255)+((b>>shift)&255)+((c>>shift)&255)+((d>>shift)&255)+2)/4);
@@ -144,6 +151,32 @@ internal sealed class CoverageInterpolator
         }
         return pixels;
 
+        uint Pixel(int index) {
+            var summary=surface[index];
+            if(summary.Count==0) return 0;
+            var color=palette(summary.Value(mode),(byte)(170*summary.Confidence));
+            uint a=color.A;
+            return a<<24 | color.R*a/255<<16 | color.G*a/255<<8 | color.B*a/255;
+        }
+    }
+
+    private void SampleRaster(Rect bounds,int width,int height,int[] visited,int source,Action<int,double,double> visit)
+    {
+        double dx=bounds.Width/width,dy=bounds.Height/height;
+        foreach(var t in triangles) {
+            var patch=new Patch(samples[t.A],samples[t.B],samples[t.C]);
+            int x0=Start(patch.Left,bounds.X,dx,width),x1=End(patch.Right,bounds.X,dx,width);
+            int y0=Start(patch.Top,bounds.Y,dy,height),y1=End(patch.Bottom,bounds.Y,dy,height);
+            for(int y=y0;y<y1;y++) for(int x=x0;x<x1;x++) {
+                int index=y*width+x;
+                if(visited[index]==source) continue;
+                var p=new Point(bounds.X+(x+.5)*dx,bounds.Y+(y+.5)*dy);
+                if(!patch.Contains(p,out var wa,out var wb,out var wc)) continue;
+                visited[index]=source;
+                if(Evaluate(patch,p,wa,wb,wc) is {} estimate)
+                    visit(index,estimate.Value,estimate.Confidence);
+            }
+        }
         static int Start(double edge,double origin,double step,int limit) =>
             (int)Math.Clamp(Math.Floor((edge-origin)/step),0,limit);
         static int End(double edge,double origin,double step,int limit) =>
